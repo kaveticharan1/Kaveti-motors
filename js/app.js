@@ -31,7 +31,7 @@ async function showroom() {
     document.getElementById('count').textContent = `${list.length} car${list.length === 1 ? '' : 's'}`;
     document.querySelectorAll('.chip').forEach((b) => b.classList.toggle('on', b.dataset.f === ui.f));
   };
-  render(`${demoBar()}<div class="brand"><div class="l"><div class="mark">${esc(CONFIG.businessName[0])}</div><div><b>${esc(CONFIG.businessName)}</b><small>${esc(CONFIG.tagline)}</small></div></div><a class="round" href="https://wa.me/${CONFIG.whatsapp}" aria-label="WhatsApp us">${ic('chat')}</a></div>
+  render(`${demoBar()}<div class="brand"><div class="l"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><div><b>${esc(CONFIG.businessName)}</b><small>${esc(CONFIG.tagline)}</small></div></div><a class="round" href="https://wa.me/${CONFIG.whatsapp}" aria-label="WhatsApp us">${ic('chat')}</a></div>
   <label class="search">${ic('search')}<input id="q" type="search" placeholder="Search Creta, Innova, Swift…" value="${esc(ui.q)}" autocomplete="off"></label>
   <div class="chips">${FILTERS.map(([k, l]) => `<button class="chip" data-f="${k}">${l}</button>`).join('')}</div>
   <div class="sect"><b>Available now</b><small id="count"></small></div><div id="grid"></div>
@@ -108,7 +108,7 @@ async function guard() {
   const s = await store.session();
   if (!s) { go('#/owner/login'); return false; }
   if (!(await store.isOwner())) {
-    render(`<div class="login"><div class="mark">${esc(CONFIG.businessName[0])}</div><h1>Almost there</h1><p>You are logged in as <b>${esc(s.email)}</b>, but this account is not set as the owner yet. Run the last step of the setup guide (make this email the owner), then reopen the app.</p><button class="b ghost" id="out">Log out</button></div>`);
+    render(`<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Almost there</h1><p>You are logged in as <b>${esc(s.email)}</b>, but this account is not set as the owner yet. Run the last step of the setup guide (make this email the owner), then reopen the app.</p><button class="b ghost" id="out">Log out</button></div>`);
     document.getElementById('out').onclick = async () => { await store.signOut(); go('#/'); };
     return false;
   }
@@ -127,7 +127,7 @@ function enrich(d) {
 
 async function login() {
   if (await store.session()) return go('#/owner');
-  render(`${demoBar()}<div class="login"><div class="mark">${esc(CONFIG.businessName[0])}</div><h1>Owner login</h1><p>Enter your email. We will send a 6-digit code: no password to remember.</p>
+  render(`${demoBar()}<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Owner login</h1><p>Enter your email. We will send a 6-digit code: no password to remember.</p>
   <form id="f1"><div class="fl"><label for="em">Email</label><input class="fi" id="em" type="email" autocomplete="email" required></div><button class="b pri" id="b1">Send code</button></form>
   <form id="f2" class="hide"><div class="fl"><label for="cd">6-digit code</label><input class="fi" id="cd" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="letter-spacing:.3em;font-size:22px;text-align:center"></div><button class="b pri" id="b2">Log in</button><p class="hint" id="sent"></p></form>
   <div class="err" id="err"></div><div class="foot"><a href="#/">Back to showroom</a></div></div>`);
@@ -323,7 +323,7 @@ async function carForm(id) {
 async function more() {
   if (!(await guard())) return;
   const s = await store.session(), data = await store.ownerData();
-  render(`${demoBar()}<div class="topbar"><b>More</b></div><div class="ocar"><div class="th" style="display:grid;place-items:center;background:var(--p);color:#fff;font-weight:800;font-size:22px">${esc(CONFIG.businessName[0])}</div><div><b>${esc(CONFIG.businessName)}</b><small>${esc(s.email)}</small></div></div>
+  render(`${demoBar()}<div class="topbar"><b>More</b></div><div class="ocar"><img class="th" src="icons/logo.svg" alt="" style="object-fit:contain"><div><b>${esc(CONFIG.businessName)}</b><small>${esc(s.email)}</small></div></div>
   <div class="actions" style="grid-template-columns:1fr"><button class="b ghost" id="csv">${ic('download')}Download backup (Excel / CSV)</button><button class="b ghost" id="link">${ic('share')}Share showroom link</button>
   ${LIVE ? '' : `<button class="b ghost" id="reset">Reset demo data</button>`}<button class="b red" id="out">${ic('logout')}Log out</button></div>
   <p class="foot">Tip: download a backup once a week and keep it in Google Drive.</p>${nav('more', data.offers.filter((o) => o.status === 'new').length)}`);
