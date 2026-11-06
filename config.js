@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────────────────────
-// Kaveti Motors – settings. This is the only file you need to edit.
+// Vahana Motors – settings. This is the only file you need to edit.
 // ─────────────────────────────────────────────────────────────
 export const CONFIG = {
   // Business details shown in the app
-  businessName: 'Kaveti Motors',
+  businessName: 'Vahana Motors',
   tagline: 'Quality used cars',
   // WhatsApp and phone number with country code, digits only (91 + 10 digits)
   whatsapp: '919999999999',

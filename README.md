@@ -1,4 +1,4 @@
-# Kaveti Motors – Showroom App
+# Vahana Motors – Showroom App
 
 A mobile web app (installable PWA) for a second-hand car business:
 
