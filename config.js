@@ -15,6 +15,16 @@ export const CONFIG = {
   supabaseUrl: '',
   supabaseAnonKey: '',
 
+  // Small badge at the top of the showroom. Leave '' to hide it.
+  heroBadge: 'Handpicked · checked · fairly priced',
+
+  // Short promises shown on every car page. Keep only what is TRUE for your business.
+  trustPoints: [
+    'Every car personally checked by us',
+    'Help with RC transfer and insurance',
+    'Test drive before you decide',
+  ],
+
   // Ageing alert limits in days: green below amberAfter, red above redAfter
   amberAfter: 30,
   redAfter: 60,

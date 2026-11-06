@@ -17,57 +17,105 @@ function render(html) { $app.innerHTML = html; window.scrollTo(0, 0); }
 function fail(e) { console.error(e); toast(e.message || 'Something went wrong. Please try again.'); }
 
 // ═════════════════════════ BUYERS ═════════════════════════
-const ui = { q: '', f: 'all' };
-const FILTERS = [['all', 'All cars'], ['Diesel', 'Diesel'], ['Petrol', 'Petrol'], ['CNG', 'CNG'], ['u6', 'Under ₹6L'], ['u10', 'Under ₹10L']];
+const ui = { q: '', fuel: 'all', budget: 'all', sort: 'new' };
+const FUELS = [['all', 'All fuels'], ['Diesel', 'Diesel'], ['Petrol', 'Petrol'], ['CNG', 'CNG']];
+const BUDGETS = [['all', 'Any budget'], ['u5', 'Under ₹5 lakh'], ['5to10', '₹5 – 10 lakh'], ['a10', 'Above ₹10 lakh']];
+const SORTS = [['new', 'Newest first'], ['plh', 'Price: low to high'], ['phl', 'Price: high to low'], ['km', 'Lowest km']];
+const CHIPS = [['all', 'All cars'], ['f:Diesel', 'Diesel'], ['f:Petrol', 'Petrol'], ['f:CNG', 'CNG'], ['b:u5', 'Under ₹5L'], ['b:5to10', '₹5–10L']];
+const inBudget = (p, b) => b === 'all' || (b === 'u5' && p < 500000) || (b === '5to10' && p >= 500000 && p <= 1000000) || (b === 'a10' && p > 1000000);
+const waLink = (text) => `https://wa.me/${CONFIG.whatsapp}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+const logoImg = (cls = 'mark') => `<img class="${cls}" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo">`;
+const topBar = (withSearch) => `<header class="top"><div class="wrap topin">
+  <a class="brandl" href="#/">${logoImg()}<div><b>${esc(CONFIG.businessName)}</b><small>${esc(CONFIG.tagline)}</small></div></a>
+  ${withSearch ? `<label class="search">${ic('search')}<input id="q" type="search" placeholder="Search Creta, Innova, Swift…" value="${esc(ui.q)}" autocomplete="off" aria-label="Search cars"></label>` : '<span class="grow"></span>'}
+  <a class="topwa" href="${waLink()}" target="_blank" rel="noopener" aria-label="WhatsApp us">${ic('chat')}<span>WhatsApp us</span></a></div></header>`;
+const siteFoot = () => `<footer class="sfoot"><div class="wrap"><div class="fl1">${logoImg()}<div><b>${esc(CONFIG.businessName)}</b><small>${esc(CONFIG.tagline)}</small></div></div>
+  <div class="fl2"><a href="${waLink()}" target="_blank" rel="noopener">${ic('chat', 'sm')}WhatsApp</a><a href="tel:${esc(CONFIG.phone)}">${ic('phone', 'sm')}${esc(CONFIG.phone)}</a><a href="#/owner">${ic('lock', 'sm')}Owner login</a></div></div></footer>`;
 
 async function showroom() {
   const cars = await store.listCars();
+  const minPrice = cars.length ? Math.min(...cars.map((c) => c.price)) : 0;
   const draw = () => {
     const q = ui.q.trim().toLowerCase();
-    const list = cars.filter((c) => (!q || `${c.name} ${c.year} ${c.fuel}`.toLowerCase().includes(q))
-      && (ui.f === 'all' || c.fuel === ui.f || (ui.f === 'u6' && c.price < 600000) || (ui.f === 'u10' && c.price < 1000000)));
+    let list = cars.filter((c) => (!q || `${c.name} ${c.year} ${c.fuel} ${c.transmission}`.toLowerCase().includes(q))
+      && (ui.fuel === 'all' || c.fuel === ui.fuel) && inBudget(c.price, ui.budget));
+    const by = { new: (a, b) => (b.listed_on || '').localeCompare(a.listed_on || ''), plh: (a, b) => a.price - b.price, phl: (a, b) => b.price - a.price, km: (a, b) => a.km - b.km }[ui.sort];
+    list = [...list].sort(by);
     document.getElementById('grid').innerHTML = list.length ? list.map(card).join('')
-      : `<div class="empty">No cars match. Try another filter, or WhatsApp us what you are looking for.</div>`;
+      : `<div class="empty">No cars match these filters. <a href="${waLink('Hi, I am looking for a car. Can you help?')}" target="_blank" rel="noopener" style="color:var(--p);font-weight:700">Tell us on WhatsApp</a> what you want and we will find it.</div>`;
     document.getElementById('count').textContent = `${list.length} car${list.length === 1 ? '' : 's'}`;
-    document.querySelectorAll('.chip').forEach((b) => b.classList.toggle('on', b.dataset.f === ui.f));
+    document.querySelectorAll('.chip').forEach((b) => { const k = b.dataset.k; b.classList.toggle('on', k === 'all' ? ui.fuel === 'all' && ui.budget === 'all' : k === `f:${ui.fuel}` || k === `b:${ui.budget}`); });
+    document.querySelectorAll('[data-fuel]').forEach((b) => b.classList.toggle('on', b.dataset.fuel === ui.fuel));
+    document.querySelectorAll('[data-budget]').forEach((b) => b.classList.toggle('on', b.dataset.budget === ui.budget));
+    document.querySelectorAll('.sortsel').forEach((s) => { s.value = ui.sort; });
+    document.getElementById('clear').classList.toggle('hide', ui.fuel === 'all' && ui.budget === 'all' && !ui.q);
   };
-  render(`${demoBar()}<div class="brand"><div class="l"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><div><b>${esc(CONFIG.businessName)}</b><small>${esc(CONFIG.tagline)}</small></div></div><a class="round" href="https://wa.me/${CONFIG.whatsapp}" aria-label="WhatsApp us">${ic('chat')}</a></div>
-  <label class="search">${ic('search')}<input id="q" type="search" placeholder="Search Creta, Innova, Swift…" value="${esc(ui.q)}" autocomplete="off"></label>
-  <div class="chips">${FILTERS.map(([k, l]) => `<button class="chip" data-f="${k}">${l}</button>`).join('')}</div>
-  <div class="sect"><b>Available now</b><small id="count"></small></div><div id="grid"></div>
-  <div class="foot">${esc(CONFIG.businessName)} · <a href="#/owner">Owner login</a></div>`);
+  const sortSel = `<select class="sortsel" aria-label="Sort cars">${SORTS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>`;
+  render(`${demoBar()}${topBar(true)}
+  <section class="hero"><div class="wrap"><div class="htx">${CONFIG.heroBadge ? `<span class="eyebrow">${ic('shield', 'sm')}${esc(CONFIG.heroBadge)}</span>` : ''}<h1>Find your next car at ${esc(CONFIG.businessName)}</h1><p>Real photos, clear prices and full details. Chat with us on WhatsApp or send a private offer in seconds.</p></div>
+  <div class="stats"><div><b>${cars.length}</b><span>cars available</span></div><div><b>${cars.filter((c) => c.fuel === 'Diesel').length}</b><span>diesel cars</span></div><div><b>${minPrice ? lakh(minPrice) : '—'}</b><span>starting price</span></div></div></div></section>
+  <div class="wrap layout"><aside class="side" aria-label="Filters"><div class="sideh"><b>Filters</b><button id="clear" class="linkbtn hide">Clear all</button></div>
+  <h3>Fuel</h3>${FUELS.map(([k, l]) => `<button class="opt" data-fuel="${k}">${l}</button>`).join('')}
+  <h3>Budget</h3>${BUDGETS.map(([k, l]) => `<button class="opt" data-budget="${k}">${l}</button>`).join('')}
+  <h3>Sort by</h3>${sortSel}
+  <div class="sidecta"><b>Can't find your car?</b><p>Tell us the model and budget. We buy from trusted sources every week.</p><a class="b wa sm" href="${waLink('Hi, I am looking for a car. Can you help?')}" target="_blank" rel="noopener">${ic('chat', 'sm')}Ask on WhatsApp</a></div></aside>
+  <main class="main"><div class="chips">${CHIPS.map(([k, l]) => `<button class="chip" data-k="${k}">${l}</button>`).join('')}</div>
+  <div class="sect"><div><b>Available now</b> <small id="count"></small></div><div class="msort">${sortSel}</div></div><div id="grid" class="grid"></div></main></div>${siteFoot()}`);
   document.getElementById('q').addEventListener('input', (e) => { ui.q = e.target.value; draw(); });
-  document.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', () => { ui.f = b.dataset.f; draw(); }));
+  document.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', () => { const k = b.dataset.k;
+    if (k === 'all') { ui.fuel = 'all'; ui.budget = 'all'; } else if (k[0] === 'f') ui.fuel = ui.fuel === k.slice(2) ? 'all' : k.slice(2); else ui.budget = ui.budget === k.slice(2) ? 'all' : k.slice(2); draw(); }));
+  document.querySelectorAll('[data-fuel]').forEach((b) => b.addEventListener('click', () => { ui.fuel = b.dataset.fuel; draw(); }));
+  document.querySelectorAll('[data-budget]').forEach((b) => b.addEventListener('click', () => { ui.budget = b.dataset.budget; draw(); }));
+  document.querySelectorAll('.sortsel').forEach((s) => s.addEventListener('change', () => { ui.sort = s.value; draw(); }));
+  document.getElementById('clear').addEventListener('click', () => { ui.fuel = 'all'; ui.budget = 'all'; ui.q = ''; document.getElementById('q').value = ''; draw(); });
   draw();
 }
 function card(c) {
-  return `<a class="car" href="#/car/${esc(c.slug)}"><div class="ph">${photo(c, c.photos[0])}<span class="tag">${ic('fuel', 'sm')}${esc(c.fuel)}</span>${c.status === 'booked' ? '<span class="tag bk">Booked</span>' : ''}</div>
+  return `<a class="car" href="#/car/${esc(c.slug)}"><div class="ph">${photo(c, c.photos[0])}<span class="tag">${ic('fuel', 'sm')}${esc(c.fuel)}</span>${c.status === 'booked' ? '<span class="tag bk">Booked</span>' : ''}${c.photos.length > 1 ? `<span class="pc">${ic('camera', 'sm')}${c.photos.length}</span>` : ''}</div>
   <div class="bd"><div class="nm">${esc(c.name)}</div><div class="meta"><span>${c.year}</span><span>${kmFmt(c.km)} km</span><span>${ownerLabel(c.owner_no)} owner</span><span>${esc(c.transmission)}</span></div>
-  <div class="pr"><b>${lakh(c.price)}</b>${c.interested ? `<small>${ic('users', 'sm')}${c.interested} interested</small>` : ''}</div></div></a>`;
+  <div class="pr"><div><b>${lakh(c.price)}</b><small class="emi">EMI from ${inr(emi(c.price))}/mo</small></div>${c.interested ? `<small class="hot">${ic('users', 'sm')}${c.interested} interested</small>` : ''}</div></div></a>`;
 }
+// Rough EMI estimate: 80% loan, 11% a year, 5 years. Shown with a clear "estimate" note on the car page.
+function emi(price, share = 0.8, rate = 11, months = 60) { const P = price * share, r = rate / 1200; return (P * r * (1 + r) ** months) / ((1 + r) ** months - 1); }
 
 async function carPage(slug) {
   const c = await store.getCarBySlug(slug);
-  if (!c) return render(`<div class="topbar"><a class="round" href="#/">${ic('back')}</a><b>Car not found</b></div><div class="empty">This car may have been sold. <a href="#/" style="color:var(--p)">See all cars</a></div>`);
+  if (!c) return render(`${topBar(false)}<div class="wrap"><div class="empty">This car may have been sold. <a href="#/" style="color:var(--p);font-weight:700">See all cars</a></div></div>`);
   const pics = c.photos.length ? c.photos : [null];
   const open = c.status !== 'sold' && c.offers_open && (!c.offers_close_at || new Date(c.offers_close_at) > new Date());
-  const wa = `https://wa.me/${CONFIG.whatsapp}?text=${encodeURIComponent(`Hi, I am interested in the ${c.name} (${c.year}, ${kmFmt(c.km)} km) listed at ${lakh(c.price)}.\n${carUrl(c.slug)}`)}`;
+  const wa = waLink(`Hi, I am interested in the ${c.name} (${c.year}, ${kmFmt(c.km)} km) listed at ${lakh(c.price)}.\n${carUrl(c.slug)}`);
+  const trust = (CONFIG.trustPoints || []).map((t) => `<li>${ic('check', 'sm')}${esc(t)}</li>`).join('');
   document.title = `${c.name} ${c.year} · ${lakh(c.price)} · ${CONFIG.businessName}`;
-  render(`${demoBar()}<div class="gallery"><div class="track" id="trk">${pics.map((p) => `<div>${photo(c, p)}</div>`).join('')}</div>
-  <a class="gbtn" style="left:16px" href="#/" aria-label="Back">${ic('back')}</a><button class="gbtn" style="right:16px" id="share" aria-label="Share">${ic('share')}</button><span class="cnt" id="cnt">1 / ${pics.length}</span></div>
-  <div class="dt"><h1>${esc(c.name)}</h1><div class="row"><span class="price">${lakh(c.price)}</span>${c.interested ? `<span class="interest">${ic('users', 'sm')}${c.interested} ${c.interested === 1 ? 'person' : 'people'} interested</span>` : ''}</div>
-  ${c.status === 'booked' ? '<span class="status">Booked · you can still make a backup offer</span>' : ''}${c.status === 'sold' ? '<span class="status">Sold</span>' : ''}</div>
-  <div class="specs">${[['cal', 'Year', c.year], ['gauge', 'Driven', kmFmt(c.km) + ' km'], ['fuel', 'Fuel', c.fuel], ['user', 'Owner', ownerLabel(c.owner_no)], ['gear', 'Gearbox', c.transmission], ['shield', 'Insurance', c.insurance_till || '—']]
+  render(`${demoBar()}${topBar(false)}<div class="wrap crumbs"><a href="#/">${ic('back', 'sm')}All cars</a><span>/</span><span>${esc(c.name)}</span></div>
+  <div class="wrap detail">
+  <div class="gal"><div class="gallery"><div class="track" id="trk">${pics.map((p) => `<div>${photo(c, p)}</div>`).join('')}</div>
+  <a class="gbtn mback" style="left:16px" href="#/" aria-label="Back">${ic('back')}</a><button class="gbtn mshare" style="right:16px" id="share" aria-label="Share">${ic('share')}</button>
+  ${pics.length > 1 ? `<button class="arr l" id="prev" aria-label="Previous photo">${ic('back')}</button><button class="arr r" id="next" aria-label="Next photo">${ic('chev')}</button>` : ''}<span class="cnt" id="cnt">1 / ${pics.length}</span></div>
+  ${pics.length > 1 ? `<div class="thumbs">${pics.map((p, i) => `<button data-i="${i}" class="${i ? '' : 'on'}" aria-label="Photo ${i + 1}">${photo(c, p)}</button>`).join('')}</div>` : ''}</div>
+  <aside class="dinfo"><div class="ibox"><h1>${esc(c.name)}</h1><div class="sub">${c.year} · ${kmFmt(c.km)} km · ${esc(c.fuel)} · ${esc(c.transmission)}</div>
+  <div class="row"><span class="price">${lakh(c.price)}</span>${c.interested ? `<span class="interest">${ic('users', 'sm')}${c.interested} ${c.interested === 1 ? 'person' : 'people'} interested</span>` : ''}</div>
+  <div class="emiline">EMI from <b>${inr(emi(c.price))}/month</b>*</div>
+  ${c.status === 'booked' ? '<span class="status">Booked · you can still make a backup offer</span>' : ''}${c.status === 'sold' ? '<span class="status">Sold</span>' : ''}
+  <div class="bar">${open ? `<button class="b pri" id="offer">${ic('tag')}Make an offer</button>` : ''}
+  <div class="btns"><a class="b wa" href="${wa}" target="_blank" rel="noopener">${ic('chat')}WhatsApp</a><a class="b ghost" href="tel:${esc(CONFIG.phone)}">${ic('phone')}Call</a></div></div>
+  <button class="dshare linkbtn" id="share2">${ic('share', 'sm')}Share this car</button>
+  ${trust ? `<ul class="trust">${trust}</ul>` : ''}</div></aside>
+  <div class="more"><h2 class="h2">Car details</h2><div class="specs">${[['cal', 'Year', c.year], ['gauge', 'Driven', kmFmt(c.km) + ' km'], ['fuel', 'Fuel', c.fuel], ['user', 'Owner', ownerLabel(c.owner_no)], ['gear', 'Gearbox', c.transmission], ['shield', 'Insurance', c.insurance_till || '—'], ...(c.colour ? [['car', 'Colour', c.colour]] : [])]
     .map(([i, l, v]) => `<div class="sp">${ic(i)}<small>${l}</small><b>${esc(v)}</b></div>`).join('')}</div>
-  ${c.colour ? `<div class="desc"><b style="color:var(--ink)">Colour:</b> ${esc(c.colour)}</div>` : ''}${c.description ? `<div class="desc">${esc(c.description)}</div>` : ''}
-  <div class="bar">${open ? `<button class="b pri" id="offer" style="margin-bottom:10px">${ic('tag')}Make an offer</button>` : ''}
-  <div class="btns"><a class="b wa" href="${wa}" target="_blank" rel="noopener">${ic('chat')}WhatsApp</a><a class="b ghost" href="tel:${esc(CONFIG.phone)}">${ic('phone')}Call</a></div></div>`);
+  ${c.description ? `<h2 class="h2">From the seller</h2><div class="desc">${esc(c.description)}</div>` : ''}
+  <p class="note">*EMI is an estimate for an 80% loan at 11% a year over 5 years. Your bank's rate and terms decide the actual EMI.</p></div></div>${siteFoot()}`);
   const trk = document.getElementById('trk');
-  trk.addEventListener('scroll', () => { document.getElementById('cnt').textContent = `${Math.round(trk.scrollLeft / trk.clientWidth) + 1} / ${pics.length}`; });
-  document.getElementById('share').addEventListener('click', async () => {
+  const goTo = (i) => trk.scrollTo({ left: i * trk.clientWidth, behavior: 'smooth' });
+  const cur = () => Math.round(trk.scrollLeft / trk.clientWidth);
+  trk.addEventListener('scroll', () => { const i = cur(); document.getElementById('cnt').textContent = `${i + 1} / ${pics.length}`; document.querySelectorAll('.thumbs button').forEach((b) => b.classList.toggle('on', +b.dataset.i === i)); });
+  document.getElementById('prev')?.addEventListener('click', () => goTo((cur() - 1 + pics.length) % pics.length));
+  document.getElementById('next')?.addEventListener('click', () => goTo((cur() + 1) % pics.length));
+  document.querySelectorAll('.thumbs button').forEach((b) => b.addEventListener('click', () => goTo(+b.dataset.i)));
+  const share = async () => {
     const data = { title: `${c.name} ${c.year}`, text: `${c.name} · ${c.year} · ${kmFmt(c.km)} km · ${lakh(c.price)}`, url: carUrl(c.slug) };
     try { if (navigator.share) await navigator.share(data); else { await navigator.clipboard.writeText(`${data.text}\n${data.url}`); toast('Link copied. Paste it in WhatsApp.'); } } catch {}
-  });
+  };
+  document.getElementById('share').addEventListener('click', share); document.getElementById('share2').addEventListener('click', share);
   if (open) document.getElementById('offer').addEventListener('click', () => offerSheet(c));
 }
 
@@ -345,6 +393,7 @@ async function route() {
   document.querySelectorAll('.scrim,.sheet').forEach((n) => n.parentElement.remove());
   document.title = `${CONFIG.businessName} · ${CONFIG.tagline}`;
   const h = location.hash.slice(1) || '/', p = h.split('/').filter(Boolean);
+  document.body.dataset.area = p[0] === 'owner' ? 'owner' : 'buyer';
   try {
     if (!p.length) return await showroom();
     if (p[0] === 'car') return await carPage(decodeURIComponent(p[1] || ''));
