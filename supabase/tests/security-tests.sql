@@ -1,0 +1,59 @@
+\set ON_ERROR_STOP 0
+insert into auth.users(id,email) values ('11111111-1111-1111-1111-111111111111','father@x.com'),('22222222-2222-2222-2222-222222222222','stranger@x.com');
+insert into public.owners values ('11111111-1111-1111-1111-111111111111');
+insert into cars(id,slug,name,year,km,fuel,price) values ('aaaaaaaa-0000-0000-0000-000000000001','creta-2018','Hyundai Creta',2018,68400,'Diesel',810000);
+insert into cars(id,slug,name,year,km,fuel,price,status) values ('aaaaaaaa-0000-0000-0000-000000000002','city-2019','Honda City',2019,52300,'Petrol',925000,'sold');
+insert into car_costs(car_id,buy_price,loan_amount,interest_rate) values ('aaaaaaaa-0000-0000-0000-000000000001',720000,600000,15);
+insert into offers(car_id,name,phone,amount) values ('aaaaaaaa-0000-0000-0000-000000000001','Ravi','9848012345',795000);
+\echo '--- AS BUYER (anon) ---'
+set role anon;
+\echo 'T1 read showroom (expect 2):'
+select count(*) from cars;
+\echo 'T2 read costs (expect 0 rows):'
+select count(*) from car_costs;
+\echo 'T3 read offers (expect 0 rows):'
+select count(*) from offers;
+\echo 'T4 public count (expect 1):'
+select interested from offer_counts();
+\echo 'T5 send valid offer (expect INSERT 0 1):'
+insert into offers(car_id,name,phone,amount) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9000011111',780000);
+\echo 'T6 same phone again (expect unique error):'
+insert into offers(car_id,name,phone,amount) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9000011111',790000);
+\echo 'T7 offer on sold car (expect RLS error):'
+insert into offers(car_id,name,phone,amount) values ('aaaaaaaa-0000-0000-0000-000000000002','X','9000022222',800000);
+\echo 'T8 fake status accepted (expect RLS error):'
+insert into offers(car_id,name,phone,amount,status) values ('aaaaaaaa-0000-0000-0000-000000000001','X','9000033333',800000,'accepted');
+\echo 'T9 change price (expect UPDATE 0):'
+update cars set price=1 where true;
+\echo 'T10 delete car (expect DELETE 0):'
+delete from cars where true;
+\echo 'T11 add car (expect RLS error):'
+insert into cars(slug,name,year,km,fuel,price) values ('x','Hack car',2020,1,'Diesel',1);
+\echo 'T12 upload photo (expect RLS error):'
+insert into storage.objects(bucket_id,name) values ('car-photos','x.jpg');
+\echo 'T13 make self owner (expect RLS error):'
+insert into owners values ('22222222-2222-2222-2222-222222222222');
+reset role;
+\echo '--- AS LOGGED-IN STRANGER (not owner) ---'
+set role authenticated; set request.jwt.sub='22222222-2222-2222-2222-222222222222';
+\echo 'T14 read costs (expect 0):'
+select count(*) from car_costs;
+\echo 'T15 read offers (expect 0):'
+select count(*) from offers;
+\echo 'T16 make self owner (expect RLS error):'
+insert into owners values ('22222222-2222-2222-2222-222222222222');
+\echo 'T17 change price (expect UPDATE 0):'
+update cars set price=1 where true;
+reset role;
+\echo '--- AS OWNER ---'
+set role authenticated; set request.jwt.sub='11111111-1111-1111-1111-111111111111';
+\echo 'T18 read costs (expect 1):'
+select count(*) from car_costs;
+\echo 'T19 read offers (expect 2):'
+select count(*) from offers;
+\echo 'T20 mark confirmed (expect UPDATE 1):'
+update offers set status='confirmed' where phone='9848012345';
+\echo 'T21 upload photo (expect INSERT 0 1):'
+insert into storage.objects(bucket_id,name) values ('car-photos','creta/1.jpg');
+\echo 'T22 add car (expect INSERT 0 1):'
+insert into cars(slug,name,year,km,fuel,price) values ('dzire-2017','Maruti Dzire',2017,84000,'Diesel',545000);

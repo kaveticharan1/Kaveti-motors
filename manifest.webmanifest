@@ -1,0 +1,19 @@
+{
+  "name": "Kaveti Motors",
+  "short_name": "Kaveti Motors",
+  "description": "Quality used cars: photos, prices and offers.",
+  "start_url": "./#/",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F6F8FB",
+  "theme_color": "#1747A6",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Owner dashboard", "url": "./#/owner" },
+    { "name": "Add a car", "url": "./#/owner/add" }
+  ]
+}
