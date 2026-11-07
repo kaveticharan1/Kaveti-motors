@@ -324,3 +324,29 @@ textarea.fi{height:90px;padding:12px 14px;resize:vertical}
 :focus-visible{outline:3px solid #F5A524;outline-offset:2px;border-radius:10px}
 @media (min-width:960px){.b.pri:hover{filter:brightness(1.12)}.b.wa:hover{filter:brightness(1.08)}.b.ghost:hover{background:#ECEFF4}.chip:hover,.opt:hover{color:var(--p)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* ───────── v6: profile, steppers, dropdowns, photo auto-fill ───────── */
+select.fi{appearance:none;-webkit-appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2364748B' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 14px center;padding-right:36px;font-size:15px}
+select.fi:disabled{background-color:var(--bg);color:var(--mute)}
+.stp{display:flex;align-items:stretch;gap:6px}
+.stp .fi{text-align:center;flex:1;min-width:0}
+.stp button{width:48px;flex:none;border-radius:14px;background:var(--p2);color:var(--p);font-size:22px;font-weight:700;line-height:1}
+.stp button:active{transform:scale(.96)}
+.fi.ai{border-color:#F5A524;background-color:#FFF8E6}
+.aibtn{display:flex;margin:10px 20px 0;width:calc(100% - 40px);height:48px;border-radius:14px;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:14.5px;color:#fff;background:linear-gradient(135deg,#7A1424,#B3263A)}
+.aibtn:disabled{opacity:.6}
+.psec{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:24px 20px 0;font-weight:800}
+.psec small{text-transform:none;letter-spacing:0;font-weight:600;margin-left:6px}
+.pre{display:flex;align-items:stretch;gap:0}
+.pre span{display:grid;place-items:center;padding:0 12px;border:1.5px solid var(--line);border-right:0;border-radius:14px 0 0 14px;background:var(--bg);font-weight:700;color:var(--ink2)}
+.pre .fi{border-radius:0 14px 14px 0}
+.chk{display:flex;align-items:center;gap:10px;margin:10px 20px 0;font-size:14px;color:var(--ink2)}
+.chk input{width:20px;height:20px;accent-color:var(--p)}
+.tp{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.tp .round{width:40px;height:40px}
+
+/* v6 layout polish */
+.pair{display:block}
+@media (min-width:700px){.pair{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;margin:0 20px}.pair .fl{margin-left:0;margin-right:0}}
+.actions .b.ghost,#ef .b.ghost{background:#fff;box-shadow:inset 0 0 0 1.5px var(--line)}
+#ef .b.ghost{padding:0 18px}

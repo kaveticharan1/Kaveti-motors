@@ -63,3 +63,22 @@ select status from offers where phone='9000033333';
 \echo 'T24 price drop remembered (expect 810000 then 780000):'
 update cars set price=780000 where slug='creta-2018';
 select prev_price, price from cars where slug='creta-2018';
+\echo '--- SETTINGS ---'
+set role anon;
+\echo 'T25 buyer reads business settings (expect 1 row):'
+select business_name from settings;
+\echo 'T26 buyer changes WhatsApp number (expect UPDATE 0):'
+update settings set whatsapp='9000000000' where true;
+\echo 'T27 buyer adds a second settings row (expect RLS error):'
+insert into settings (id) values (2);
+reset role;
+set role authenticated; set request.jwt.sub='22222222-2222-2222-2222-222222222222';
+\echo 'T28 logged-in stranger changes settings (expect UPDATE 0):'
+update settings set whatsapp='9000000000' where true;
+reset role;
+set role authenticated; set request.jwt.sub='11111111-1111-1111-1111-111111111111';
+\echo 'T29 owner changes WhatsApp number (expect UPDATE 1):'
+update settings set whatsapp='9848012345', updated_at=now() where id=1;
+\echo 'T30 owner saves invalid number (expect check error):'
+update settings set whatsapp='12345' where id=1;
+reset role;

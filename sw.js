@@ -1,8 +1,8 @@
 // Service worker: makes the app installable and keeps the app screens available on weak signal.
 // Car data and photos always come fresh from the internet; only the app files are cached.
 // Change VERSION after every update so phones pick up the new files.
-const VERSION = 'vm-v5';
-const FILES = ['./', 'index.html', 'styles.css', 'config.js', 'js/app.js', 'js/store.js', 'js/calc.js', 'js/ui.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/logo.svg', 'icons/icon-512.png'];
+const VERSION = 'vm-v6';
+const FILES = ['./', 'index.html', 'styles.css', 'config.js', 'js/app.js', 'js/store.js', 'js/calc.js', 'js/ui.js', 'js/cars-data.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/logo.svg', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

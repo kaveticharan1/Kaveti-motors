@@ -32,6 +32,9 @@ create table if not exists public.cars (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique,
   name text not null check (char_length(name) between 2 and 80),
+  brand text check (brand is null or char_length(brand) <= 40),
+  model text check (model is null or char_length(model) <= 40),
+  variant text check (variant is null or char_length(variant) <= 40),
   year int not null check (year between 1990 and 2100),
   km int not null check (km >= 0),
   fuel text not null check (fuel in ('Diesel','Petrol','CNG','Electric','Hybrid')),
@@ -51,6 +54,9 @@ create table if not exists public.cars (
   created_at timestamptz not null default now()
 );
 alter table public.cars add column if not exists prev_price int check (prev_price is null or prev_price > 0);
+alter table public.cars add column if not exists brand text check (brand is null or char_length(brand) <= 40);
+alter table public.cars add column if not exists model text check (model is null or char_length(model) <= 40);
+alter table public.cars add column if not exists variant text check (variant is null or char_length(variant) <= 40);
 alter table public.cars enable row level security;
 
 drop policy if exists "anyone reads showroom" on public.cars;
@@ -180,6 +186,27 @@ $$;
 drop trigger if exists price_drop on public.cars;
 create trigger price_drop before update of price on public.cars
   for each row execute function public.price_drop();
+
+
+-- ─────────────────────────────────────────────────────────────
+-- 4b. Business settings (Profile tab): everyone can read, only the owner can change
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.settings (
+  id int primary key default 1 check (id = 1),          -- exactly one row
+  business_name text not null default 'Vahana Motors' check (char_length(business_name) between 2 and 40),
+  tagline text not null default 'Quality used cars' check (char_length(tagline) <= 60),
+  whatsapp text check (whatsapp is null or whatsapp ~ '^[6-9][0-9]{9}$'),
+  phone text check (phone is null or phone ~ '^[6-9][0-9]{9}$'),
+  hero_badge text not null default '' check (char_length(hero_badge) <= 60),
+  trust_points text[] not null default '{}' check (cardinality(trust_points) <= 6),
+  updated_at timestamptz not null default now()
+);
+insert into public.settings (id) values (1) on conflict (id) do nothing;
+alter table public.settings enable row level security;
+drop policy if exists "anyone reads settings" on public.settings;
+create policy "anyone reads settings" on public.settings for select to anon, authenticated using (true);
+drop policy if exists "owner updates settings" on public.settings;
+create policy "owner updates settings" on public.settings for update to authenticated using (public.is_owner()) with check (public.is_owner());
 
 -- ─────────────────────────────────────────────────────────────
 -- 5. Photo storage: anyone can view, only the owner can upload/delete

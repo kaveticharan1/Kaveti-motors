@@ -2,6 +2,7 @@ import { CONFIG } from '../config.js';
 import { store, LIVE } from './store.js';
 import { costSheet, inr, lakh, kmFmt, localISO } from './calc.js';
 import { ic, esc, photo, toast, compressImage, slugify, ask } from './ui.js';
+import { BRANDS, COLOURS, MONTHS, findBrand, findModel, splitName } from './cars-data.js';
 
 const $app = document.getElementById('app');
 const digits = (s) => String(s || '').replace(/\D/g, '');
@@ -172,7 +173,7 @@ async function guard() {
 }
 function nav(active, newOffers) {
   const t = (k, h, i, l, extra = '') => `<a href="${h}" class="${active === k ? 'on' : ''}">${ic(i)}${l}${extra}</a>`;
-  return `<nav class="nav">${t('home', '#/owner', 'home', 'Home')}${t('stock', '#/owner/stock', 'car', 'Stock')}<a href="#/owner/add" aria-label="Add car"><span class="add">${ic('plus')}</span></a>${t('offers', '#/owner/offers', 'tag', 'Offers', newOffers ? `<span class="nb">${newOffers}</span>` : '')}${t('more', '#/owner/more', 'user', 'More')}</nav>`;
+  return `<nav class="nav">${t('home', '#/owner', 'home', 'Home')}${t('stock', '#/owner/stock', 'car', 'Stock')}<a href="#/owner/add" aria-label="Add car"><span class="add">${ic('plus')}</span></a>${t('offers', '#/owner/offers', 'tag', 'Offers', newOffers ? `<span class="nb">${newOffers}</span>` : '')}${t('more', '#/owner/profile', 'user', 'Profile')}</nav>`;
 }
 function enrich(d) {
   return d.cars.map((c) => {
@@ -205,6 +206,7 @@ async function dashboard() {
   render(`${demoBar()}<div class="ohead"><div><small>${hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}</small><b>Your stock</b></div><a class="round" href="#/" aria-label="Open showroom">${ic('share')}</a></div>
   <div class="hero2"><small>Money in stock · ${stock.length} car${stock.length === 1 ? '' : 's'}</small><div class="v">${lakh(locked)}</div><div class="sub"><div>Interest / day<b>${inr(perDay)}</b></div><div>New offers<b>${newOffers}</b></div><div>Sold this month<b>${soldMonth}</b></div></div></div>
   ${red.map((c) => `<a class="alert" href="#/owner/car/${c.id}"><div class="ic3">${ic('alert')}</div><div><b>${esc(c.name)}: ${c.cs.days} days in stock</b><small>Interest so far ${inr(c.cs.interest)} · tap to review price</small></div></a>`).join('')}
+  ${numbersMissing() ? `<a class="alert amb" href="#/owner/profile"><div class="ic3">${ic('phone')}</div><div><b>Add your WhatsApp number</b><small>Buyers can't reach you until it's set. Tap to open Profile.</small></div></a>` : ''}
   ${newOffers ? `<a class="alert blu" href="#/owner/offers"><div class="ic3">${ic('tag')}</div><div><b>${newOffers} new offer${newOffers > 1 ? 's' : ''} to call back</b><small>Confirm them by phone to count them</small></div></a>` : ''}
   <div class="sect"><b>Stock, oldest first</b><a href="#/owner/stock">See all</a></div>
   <div class="list">${stock.length ? stock.map(row).join('') : '<div class="empty">No cars yet. Tap + to add your first car.</div>'}</div>${nav('home', newOffers)}`);
@@ -305,40 +307,76 @@ async function carForm(id) {
   if (!(await guard())) return;
   const d = id ? enrich(await store.ownerData()).find((x) => x.id === id) : null;
   if (id && !d) return go('#/owner');
-  const today = localISO();
-  const f = d ? { ...d, ...(d.costs || {}), pics: d.photos.map((u) => ({ url: u })) }
-    : { name: '', year: '', km: '', fuel: 'Diesel', transmission: 'Manual', owner_no: 1, colour: '', insurance_till: '', price: '', description: '', buy_price: '', bought_on: today, loan_amount: '', interest_rate: '', offers_open: true, offers_close_at: '', pics: [] };
+  const today = localISO(), yNow = new Date().getFullYear();
+  // Brand / model: use saved fields, or split an older car's name.
+  const sp = d ? (d.brand ? { brand: findBrand(d.brand, true), model: d.model, variant: d.variant || '' } : splitName(d.name)) : {};
+  const bIn = d ? (sp.brand || 'Other') : '', bOther = d && !sp.brand ? (d.brand || '') : '';
+  const mListed = sp.brand && sp.model && BRANDS[sp.brand].includes(sp.model);
+  const ins = d && d.insurance_till ? String(d.insurance_till).split(' ') : [];
+  const colKnown = d && COLOURS.includes(d.colour);
+  const f = {
+    brand: bIn, brandOther: bOther, model: d ? (mListed ? sp.model : 'Other') : '', modelOther: d ? (mListed ? '' : (sp.model || sp.modelText || '')) : '', variant: d ? (sp.variant || '') : '',
+    year: d ? d.year : '', km: d ? d.km : '', fuel: d ? d.fuel : 'Diesel', transmission: d ? d.transmission : 'Manual', owner_no: d ? d.owner_no : 1,
+    colourSel: d ? (d.colour ? (colKnown ? d.colour : 'Other') : '') : '', colourOther: d && d.colour && !colKnown ? d.colour : '',
+    insM: MONTHS.includes(ins[0]) ? ins[0] : (d && d.insurance_till === 'Not available' ? 'NA' : ''), insY: ins[1] || '',
+    price: d ? d.price : '', description: d ? d.description || '' : '',
+    buy_price: d && d.costs ? d.costs.buy_price : '', bought_on: d && d.costs ? d.costs.bought_on : today, loan_amount: d && d.costs ? d.costs.loan_amount || '' : '', interest_rate: d && d.costs ? d.costs.interest_rate || '' : '',
+    offers_open: d ? d.offers_open : true, offers_close_at: d ? d.offers_close_at || '' : '', pics: d ? d.photos.map((u) => ({ url: u })) : [],
+  };
+  const aiSet = new Set();
   let step = 1;
+  const opt = (v, l, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`;
   const seg = (k, opts) => `<div class="seg" data-k="${k}">${opts.map((o) => `<button type="button" data-v="${o}" class="${String(f[k]) === String(o) ? 'on' : ''}">${o}</button>`).join('')}</div>`;
-  const inp = (k, l, attrs = '', hint = '') => `<div class="fl"><label for="${k}">${l}</label><input class="fi" id="${k}" value="${esc(f[k] ?? '')}" ${attrs}>${hint}</div>`;
+  const ai = (k) => (aiSet.has(k) ? ' ai' : '');
   const moneyHint = (k) => `<p class="hint" data-h="${k}">${num(f[k]) ? lakh(num(f[k])) : ''}</p>`;
+  // Number box with − / + buttons; typing is still allowed.
+  const stepper = (k, label, stepBy, attrs = '', hint = '') => `<div class="fl"><label for="${k}">${label}</label><div class="stp"><button type="button" data-stp="${k}" data-d="-${stepBy}" aria-label="Decrease ${label}">−</button><input class="fi${ai(k)}" id="${k}" value="${esc(f[k] ?? '')}" ${attrs}><button type="button" data-stp="${k}" data-d="${stepBy}" aria-label="Increase ${label}">+</button></div>${hint}</div>`;
+  const carName = () => [f.brand === 'Other' ? f.brandOther.trim() : f.brand, f.model === 'Other' || f.brand === 'Other' ? f.modelOther.trim() : f.model, f.variant.trim()].filter(Boolean).join(' ');
   const draw = () => {
-    const pics = f.pics;
+    const pics = f.pics, models = f.brand && f.brand !== 'Other' ? BRANDS[f.brand] : [];
     const body = step === 1 ? `<div class="slabel">Step 1 of 3</div><div class="stitle">Photos and details</div>
       <div class="pg">${pics.map((p, i) => `<div class="${i ? '' : 'cover'}"><img src="${esc(p.url)}" alt="">${i ? `<button type="button" class="mkcover" data-cover="${i}">${ic('check', 'sm')}Cover</button>` : '<span class="covtag">Cover photo</span>'}<button type="button" data-rm="${i}" aria-label="Remove photo">${ic('x', 'sm')}</button></div>`).join('')}</div>
       <label class="cam">${ic('camera')}${pics.length ? 'Add more photos' : 'Add photos'}<input type="file" id="pick" accept="image/*" multiple hidden></label>
+      ${pics.length ? `<button type="button" class="aibtn" id="aifill">${ic('spark')}Fill details from photos</button><p class="hint" id="aimsg" style="margin:6px 20px 0">${aiSet.size ? 'Filled from your photos. Please check the highlighted fields: photo detection can make mistakes.' : 'Reads the brand, model and colour from your photos.'}</p>` : ''}
       ${pics.length < 6 ? `<p class="hint" style="margin:8px 20px 0">Tip: 6–10 bright daylight photos sell faster: front corner, side, back, dashboard showing km, front and back seats, tyres.</p>` : ''}
-      ${inp('name', 'Car name and model', 'maxlength="80" placeholder="e.g. Maruti Swift VDI"')}
-      <div class="fl two"><div><label for="year">Year</label><input class="fi" id="year" inputmode="numeric" maxlength="4" value="${esc(f.year)}"></div><div><label for="km">KM driven</label><input class="fi" id="km" inputmode="numeric" value="${esc(f.km)}"></div></div>
-      <div class="fl"><label>Fuel</label>${seg('fuel', ['Diesel', 'Petrol', 'CNG'])}</div>
+      <div class="fl two"><div><label for="brand">Brand</label><select class="fi${ai('brand')}" id="brand"><option value="">Choose brand</option>${Object.keys(BRANDS).map((b) => opt(b, b, f.brand)).join('')}${opt('Other', 'Other (type it)', f.brand)}</select></div>
+      <div><label for="model">Model</label><select class="fi${ai('model')}" id="model" ${f.brand ? '' : 'disabled'}><option value="">${f.brand ? 'Choose model' : 'Choose brand first'}</option>${models.map((m) => opt(m, m, f.model)).join('')}${f.brand ? opt('Other', 'Other (type it)', f.model) : ''}</select></div></div>
+      ${f.brand === 'Other' ? `<div class="fl"><label for="brandOther">Brand name</label><input class="fi${ai('brandOther')}" id="brandOther" maxlength="40" value="${esc(f.brandOther)}" placeholder="e.g. Premier"></div>` : ''}
+      ${f.model === 'Other' || f.brand === 'Other' ? `<div class="fl"><label for="modelOther">Model name</label><input class="fi${ai('modelOther')}" id="modelOther" maxlength="40" value="${esc(f.modelOther)}" placeholder="e.g. Padmini"></div>` : ''}
+      <div class="fl"><label for="variant">Variant (optional)</label><input class="fi${ai('variant')}" id="variant" maxlength="40" value="${esc(f.variant)}" placeholder="e.g. VDI, 1.6 SX, ZX CVT"></div>
+      <p class="hint" id="npv" style="margin:6px 20px 0">${carName() ? `Shown to buyers as <b>${esc(carName())}</b>` : ''}</p>
+      <div class="pair">${stepper('year', 'Year', 1, `inputmode="numeric" maxlength="4" placeholder="${yNow - 5}"`)}${stepper('km', 'KM driven', 1000, 'inputmode="numeric" placeholder="e.g. 45000"')}</div>
+      <div class="fl"><label>Fuel</label>${seg('fuel', ['Diesel', 'Petrol', 'CNG', 'Electric'])}</div>
       <div class="fl"><label>Gearbox</label>${seg('transmission', ['Manual', 'Automatic'])}</div>
       <div class="fl"><label>Owner</label>${seg('owner_no', [1, 2, 3, 4])}</div>
-      <div class="fl two"><div><label for="colour">Colour</label><input class="fi" id="colour" value="${esc(f.colour || '')}" maxlength="20"></div><div><label for="insurance_till">Insurance till</label><input class="fi" id="insurance_till" value="${esc(f.insurance_till || '')}" placeholder="e.g. Mar 2027" maxlength="20"></div></div>
-      ${inp('price', 'Asking price (₹)', 'inputmode="numeric"', moneyHint('price'))}
+      <div class="pair"><div class="fl"><label for="colourSel">Colour</label><select class="fi${ai('colourSel')}" id="colourSel"><option value="">Choose colour</option>${COLOURS.map((c) => opt(c, c, f.colourSel)).join('')}${opt('Other', 'Other (type it)', f.colourSel)}</select></div>
+      <div class="fl"><label for="insM">Insurance valid till</label><div class="two" style="gap:8px"><select class="fi" id="insM"><option value="">Month</option>${MONTHS.map((m) => opt(m, m, f.insM)).join('')}${opt('NA', 'None', f.insM)}</select><select class="fi" id="insY" ${f.insM === 'NA' ? 'disabled' : ''}><option value="">Year</option>${[yNow - 1, yNow, yNow + 1, yNow + 2, yNow + 3].map((y) => opt(y, y, f.insY)).join('')}</select></div></div></div>
+      ${f.colourSel === 'Other' ? `<div class="fl"><label for="colourOther">Colour name</label><input class="fi${ai('colourOther')}" id="colourOther" maxlength="20" value="${esc(f.colourOther)}" placeholder="e.g. Pearl white"></div>` : ''}
+      ${stepper('price', 'Asking price (₹)', 5000, 'inputmode="numeric" placeholder="e.g. 525000"', moneyHint('price'))}
       <div class="fl"><label for="description">Notes for buyers (optional)</label><textarea class="fi" id="description" maxlength="500" placeholder="Single owner, all service records, new tyres…">${esc(f.description || '')}</textarea></div>`
       : step === 2 ? `<div class="slabel">Step 2 of 3</div><div class="stitle">Buying cost</div><p class="desc">Only you can see this. Add repair and other expenses later on the cost sheet.</p>
-      ${inp('buy_price', 'Bought for (₹)', 'inputmode="numeric"', moneyHint('buy_price'))}${inp('bought_on', 'Bought on', 'type="date"')}`
+      ${stepper('buy_price', 'Bought for (₹)', 5000, 'inputmode="numeric"', moneyHint('buy_price'))}<div class="fl"><label for="bought_on">Bought on</label><input class="fi" id="bought_on" type="date" value="${esc(f.bought_on)}" max="${today}"></div>`
       : `<div class="slabel">Step 3 of 3</div><div class="stitle">Loan and offers</div><p class="desc">Interest is counted every day from the date you bought the car. Leave empty if there is no loan.</p>
-      ${inp('loan_amount', 'Loan amount (₹)', 'inputmode="numeric"', moneyHint('loan_amount'))}${inp('interest_rate', 'Interest rate (% per year)', 'inputmode="decimal" placeholder="e.g. 15"')}
+      ${stepper('loan_amount', 'Loan amount (₹)', 10000, 'inputmode="numeric"', moneyHint('loan_amount'))}${stepper('interest_rate', 'Interest rate (% per year)', 0.5, 'inputmode="decimal" placeholder="e.g. 15"')}
       <div class="fl"><label>Accept offers from buyers?</label>${seg('offers_open', ['Yes', 'No']).replace(/data-v="(Yes|No)" class="[^"]*"/g, (m, v) => `data-v="${v}" class="${(v === 'Yes') === !!f.offers_open ? 'on' : ''}"`)}</div>
-      ${inp('offers_close_at', 'Offers close on (optional)', `type="datetime-local"`, '<p class="hint">Use this when several buyers are interested.</p>')}`;
-    render(`<div class="topbar"><button class="round" id="cancel">${ic(step === 1 ? 'x' : 'back')}</button><b>${d ? 'Edit car' : 'Add a car'}</b></div><div class="steps">${[1, 2, 3].map((s) => `<span class="${s <= step ? 'on' : ''}"></span>`).join('')}</div>${body}
+      <div class="fl"><label for="offers_close_at">Offers close on (optional)</label><input class="fi" id="offers_close_at" type="datetime-local"><p class="hint">Use this when several buyers are interested.</p></div>`;
+    render(`<div class="topbar"><button class="round" id="cancel" aria-label="${step === 1 ? 'Close' : 'Back'}">${ic(step === 1 ? 'x' : 'back')}</button><b>${d ? 'Edit car' : 'Add a car'}</b></div><div class="steps">${[1, 2, 3].map((x) => `<span class="${x <= step ? 'on' : ''}"></span>`).join('')}</div>${body}
     <div class="err" id="err" style="margin:10px 20px 0"></div><div class="bar"><button class="b pri" id="next">${step < 3 ? `Next: ${step === 1 ? 'buying cost' : 'loan and offers'}` : d ? 'Save changes' : 'Save and publish'}</button></div>`);
-    const $ = (s) => document.getElementById(s);
-    if (f.offers_close_at && $('offers_close_at')) { const t = new Date(f.offers_close_at); if (!isNaN(t)) $('offers_close_at').value = new Date(t - t.getTimezoneOffset() * 6e4).toISOString().slice(0, 16); else $('offers_close_at').value = f.offers_close_at; }
-    document.querySelectorAll('.seg').forEach((s) => s.querySelectorAll('button').forEach((b) => (b.onclick = () => {
-      const k = s.dataset.k; f[k] = k === 'owner_no' ? Number(b.dataset.v) : k === 'offers_open' ? b.dataset.v === 'Yes' : b.dataset.v;
-      s.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); })));
+    const $ = (x) => document.getElementById(x);
+    if (f.offers_close_at && $('offers_close_at')) { const t = new Date(f.offers_close_at); $('offers_close_at').value = isNaN(t) ? f.offers_close_at : new Date(t - t.getTimezoneOffset() * 6e4).toISOString().slice(0, 16); }
+    document.querySelectorAll('.seg').forEach((sg) => sg.querySelectorAll('button').forEach((b) => (b.onclick = () => {
+      const k = sg.dataset.k; f[k] = k === 'owner_no' ? Number(b.dataset.v) : k === 'offers_open' ? b.dataset.v === 'Yes' : b.dataset.v; aiSet.delete(k);
+      sg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); })));
+    // Dropdowns that change what else is shown redraw the form.
+    ['brand', 'model', 'colourSel', 'insM'].forEach((k) => $(k)?.addEventListener('change', () => { collect(); aiSet.delete(k); if (k === 'brand') { f.model = ''; f.modelOther = ''; } if (k === 'insM' && f.insM === 'NA') f.insY = ''; draw(); $(k === 'brand' ? 'model' : k)?.focus(); }));
+    // Typing in these boxes only updates the name preview, so the cursor never jumps.
+    ['variant', 'brandOther', 'modelOther'].forEach((k) => $(k)?.addEventListener('input', () => { collect(); aiSet.delete(k); $(k).classList.remove('ai'); const n = carName(); $('npv').innerHTML = n ? `Shown to buyers as <b>${esc(n)}</b>` : ''; }));
+    document.querySelectorAll('[data-stp]').forEach((b) => (b.onclick = () => {
+      const k = b.dataset.stp, el = $(k), dv = Number(b.dataset.d), cur = k === 'interest_rate' ? parseFloat(el.value) || 0 : num(el.value);
+      let v = k === 'year' && !cur ? yNow : Math.max(0, Math.round((cur + dv) * 100) / 100);
+      if (k === 'year') v = Math.min(yNow + 1, Math.max(1990, v));
+      el.value = v; el.dispatchEvent(new Event('input')); aiSet.delete(k);
+    }));
     document.querySelectorAll('[data-h]').forEach((h) => $(h.dataset.h).addEventListener('input', (e) => { h.textContent = num(e.target.value) ? lakh(num(e.target.value)) : ''; }));
     $('pick')?.addEventListener('change', async (e) => {
       for (const file of e.target.files) { try { const blob = await compressImage(file, LIVE ? 1280 : 640, LIVE ? 0.72 : 0.6); f.pics.push({ blob, url: URL.createObjectURL(blob) }); } catch (ex) { fail(ex); } }
@@ -346,6 +384,7 @@ async function carForm(id) {
     });
     document.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => { collect(); f.pics.splice(+b.dataset.rm, 1); draw(); }));
     document.querySelectorAll('[data-cover]').forEach((b) => (b.onclick = () => { collect(); const [p] = f.pics.splice(+b.dataset.cover, 1); f.pics.unshift(p); draw(); toast('Cover photo changed'); }));
+    $('aifill')?.addEventListener('click', () => fillFromPhotos($('aifill'), $('aimsg')));
     $('cancel').onclick = () => { collect(); if (step > 1) { step--; draw(); } else history.back(); };
     $('next').onclick = async () => {
       collect(); const err = validate(); if (err) { $('err').textContent = err; return; }
@@ -353,10 +392,13 @@ async function carForm(id) {
       if (step < 3) { step++; return draw(); }
       $('next').disabled = true; $('next').textContent = 'Saving…';
       try {
-        const slug = d ? d.slug : slugify(f.name, f.year);
+        const name = carName(), slug = d ? d.slug : slugify(name, f.year);
         const fresh = f.pics.filter((p) => p.blob), up = fresh.length ? await store.uploadPhotos(slug, fresh.map((p) => p.blob)) : [];
         const photos = f.pics.map((p) => (p.blob ? up[fresh.indexOf(p)] : p.url));
-        const car = { name: f.name.trim(), year: num(f.year), km: num(f.km), fuel: f.fuel, transmission: f.transmission, owner_no: Number(f.owner_no), colour: f.colour.trim() || null, insurance_till: f.insurance_till.trim() || null,
+        const colour = f.colourSel === 'Other' ? f.colourOther.trim() : f.colourSel;
+        const car = { name, brand: f.brand === 'Other' ? f.brandOther.trim() || null : f.brand, model: f.model === 'Other' || f.brand === 'Other' ? f.modelOther.trim() || null : f.model, variant: f.variant.trim() || null,
+          year: num(f.year), km: num(f.km), fuel: f.fuel, transmission: f.transmission, owner_no: Number(f.owner_no), colour: colour || null,
+          insurance_till: f.insM === 'NA' ? 'Not available' : f.insM && f.insY ? `${f.insM} ${f.insY}` : null,
           description: f.description.trim() || null, price: num(f.price), photos, offers_open: !!f.offers_open, offers_close_at: f.offers_close_at ? new Date(f.offers_close_at).toISOString() : null };
         if (d) car.id = d.id; else car.slug = slug;
         const costs = { buy_price: num(f.buy_price), bought_on: f.bought_on || today, loan_amount: num(f.loan_amount), interest_rate: Number(String(f.interest_rate || 0).replace(/[^\d.]/g, '')) || 0 };
@@ -365,6 +407,30 @@ async function carForm(id) {
       } catch (ex) { fail(ex); $('next').disabled = false; $('next').textContent = 'Try again'; }
     };
   };
+  // Photo auto-fill: sends up to 2 small copies of the photos, then fills only what it recognised.
+  async function fillFromPhotos(btn, msg) {
+    collect(); btn.disabled = true; btn.innerHTML = `${ic('spark')}Reading photos…`;
+    try {
+      const imgs = [];
+      for (const p of f.pics.slice(0, 2)) {
+        const blob = p.blob || (await (await fetch(p.url)).blob());
+        const small = await compressImage(blob, 640, 0.7);
+        imgs.push(await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(small); }));
+      }
+      const r = await store.identify(imgs);
+      const set = (k, v) => { if (v !== undefined && v !== null && v !== '') { f[k] = v; aiSet.add(k); } };
+      const b = findBrand(r.brand || '');
+      if (b) { set('brand', b); const m = findModel(b, r.model || ''); if (m) set('model', m); else if (r.model) { set('model', 'Other'); set('modelOther', String(r.model).slice(0, 40)); } }
+      else if (r.brand) { set('brand', 'Other'); set('brandOther', String(r.brand).slice(0, 40)); if (r.model) set('modelOther', String(r.model).slice(0, 40)); }
+      if (r.variant && !f.variant) set('variant', String(r.variant).slice(0, 40));
+      const col = COLOURS.find((c) => c.toLowerCase() === String(r.colour || '').toLowerCase());
+      if (col) set('colourSel', col); else if (r.colour) { set('colourSel', 'Other'); set('colourOther', String(r.colour).slice(0, 20)); }
+      if (['Diesel', 'Petrol', 'CNG', 'Electric'].includes(r.fuel)) set('fuel', r.fuel);
+      if (['Manual', 'Automatic'].includes(r.transmission)) set('transmission', r.transmission);
+      if (!aiSet.size) throw new Error('Could not recognise the car. Try a clear photo of the front or side, or fill the details by hand.');
+      draw(); toast('Details filled from photos. Please check them.');
+    } catch (ex) { btn.disabled = false; btn.innerHTML = `${ic('spark')}Fill details from photos`; msg.textContent = ex.message; msg.classList.add('err'); }
+  }
   const collect = () => { document.querySelectorAll('.fi').forEach((el) => { if (el.id && el.id in f) f[el.id] = el.value; }); };
   // "Are you sure?" checks for likely typos (extra zeros) and selling at a loss.
   const warnings = () => {
@@ -377,10 +443,14 @@ async function carForm(id) {
   };
   const validate = () => {
     if (step === 1) {
-      if (f.name.trim().length < 2) return 'Enter the car name.';
-      const y = num(f.year); if (y < 1990 || y > new Date().getFullYear() + 1) return 'Enter a valid year.';
+      if (!f.brand) return 'Choose the brand.';
+      if (f.brand === 'Other' && f.brandOther.trim().length < 2) return 'Type the brand name.';
+      if (f.brand !== 'Other' && !f.model) return 'Choose the model.';
+      if ((f.model === 'Other' || f.brand === 'Other') && f.modelOther.trim().length < 1) return 'Type the model name.';
+      const y = num(f.year); if (y < 1990 || y > yNow + 1) return 'Enter a valid year.';
       if (!digits(f.km)) return 'Enter KM driven.';
       if (num(f.price) < 10000) return 'Enter the asking price.';
+      if (f.insM && f.insM !== 'NA' && !f.insY) return 'Choose the insurance year.';
     }
     if (step === 2 && !num(f.buy_price)) return 'Enter the price you bought it for.';
     if (step === 3) { const r = Number(String(f.interest_rate || 0).replace(/[^\d.]/g, '')); if (num(f.loan_amount) && !(r > 0 && r <= 60)) return 'Enter the interest rate, e.g. 15.'; }
@@ -389,25 +459,85 @@ async function carForm(id) {
   draw();
 }
 
-async function more() {
+// Business settings saved from the Profile tab override config.js everywhere in the app.
+const PLACEHOLDER = '9999999999';
+const ten = (v) => digits(v).replace(/^(91|0)(?=\d{10}$)/, '');
+function applySettings(st) {
+  if (!st) return;
+  if (st.business_name) CONFIG.businessName = st.business_name;
+  if (st.tagline !== undefined) CONFIG.tagline = st.tagline;
+  if (st.whatsapp) CONFIG.whatsapp = '91' + st.whatsapp;
+  if (st.phone) CONFIG.phone = '+91' + st.phone;
+  if (st.hero_badge !== undefined) CONFIG.heroBadge = st.hero_badge;
+  if (Array.isArray(st.trust_points) && st.trust_points.length) CONFIG.trustPoints = st.trust_points;
+}
+const numbersMissing = () => ten(CONFIG.whatsapp) === PLACEHOLDER || !/^[6-9]\d{9}$/.test(ten(CONFIG.whatsapp));
+
+async function profile() {
   if (!(await guard())) return;
-  const s = await store.session(), data = await store.ownerData();
-  render(`${demoBar()}<div class="topbar"><b>More</b></div><div class="ocar"><img class="th" src="icons/logo.svg" alt="" style="object-fit:contain"><div><b>${esc(CONFIG.businessName)}</b><small>${esc(s.email)}</small></div></div>
-  <div class="actions" style="grid-template-columns:1fr"><button class="b ghost" id="csv">${ic('download')}Download backup (Excel / CSV)</button><button class="b ghost" id="link">${ic('share')}Share showroom link</button>
-  ${LIVE ? '' : `<button class="b ghost" id="reset">Reset demo data</button>`}<button class="b red" id="out">${ic('logout')}Log out</button></div>
-  <p class="foot">Tip: download a backup once a week and keep it in Google Drive.</p>${nav('more', data.offers.filter((o) => o.status === 'new').length)}`);
-  const $ = (id) => document.getElementById(id);
-  $('csv').onclick = () => {
-    // Cells starting with = + - @ would run as formulas in Excel: prefix them with ' so they stay plain text.
-    const q = (v) => { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`; return `"${t.replace(/"/g, '""')}"`; };
-    const cars = enrich(data).map((c) => [c.name, c.year, c.km, c.fuel, c.status, c.price, c.costs?.buy_price, c.cs.spent, Math.round(c.cs.interest), Math.round(c.cs.total), c.costs?.sold_price ?? '', c.costs?.bought_on, c.sold_on ?? '', c.offers.length]);
-    const offers = enrich(data).flatMap((c) => c.offers.map((o) => [c.name, o.name, o.phone, o.amount, o.status, o.created_at]));
-    const csv = [['Car', 'Year', 'KM', 'Fuel', 'Status', 'Asking price', 'Bought for', 'Expenses', 'Interest', 'Total cost', 'Sold for', 'Bought on', 'Sold on', 'Offers'], ...cars, [], ['OFFERS'], ['Car', 'Buyer', 'Phone', 'Amount', 'Status', 'Received'], ...offers].map((r) => r.map(q).join(',')).join('\n');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = `vahana-motors-backup-${localISO()}.csv`; a.click();
+  const sess = await store.session(), data = await store.ownerData();
+  const v = { business_name: CONFIG.businessName, tagline: CONFIG.tagline || '', whatsapp: ten(CONFIG.whatsapp) === PLACEHOLDER ? '' : ten(CONFIG.whatsapp),
+    phone: ten(CONFIG.phone) === PLACEHOLDER ? '' : ten(CONFIG.phone), hero_badge: CONFIG.heroBadge || '', trust_points: [...(CONFIG.trustPoints || [])] };
+  let same = !v.phone || v.phone === v.whatsapp;
+  const draw = () => {
+    render(`${demoBar()}<div class="topbar"><b>Profile</b></div>
+    <div class="ocar"><img class="th" src="icons/logo.svg" alt="" style="object-fit:contain"><div><b>${esc(v.business_name)}</b><small>Logged in as ${esc(sess.email)}</small></div></div>
+    <form id="pf" novalidate>
+    <h3 class="psec">Business details</h3>
+    <div class="fl"><label for="business_name">Business name</label><input class="fi" id="business_name" maxlength="40" value="${esc(v.business_name)}"></div>
+    <div class="fl"><label for="tagline">Tagline</label><input class="fi" id="tagline" maxlength="60" value="${esc(v.tagline)}" placeholder="e.g. Quality used cars"></div>
+    <h3 class="psec">Contact numbers <small>shown to buyers</small></h3>
+    <div class="fl"><label for="whatsapp">WhatsApp number</label><div class="pre"><span>+91</span><input class="fi" id="whatsapp" inputmode="tel" maxlength="17" value="${esc(v.whatsapp)}" placeholder="10-digit mobile number"></div></div>
+    <label class="chk"><input type="checkbox" id="same" ${same ? 'checked' : ''}> Calls go to the same number</label>
+    ${same ? '' : `<div class="fl"><label for="phone">Number for calls</label><div class="pre"><span>+91</span><input class="fi" id="phone" inputmode="tel" maxlength="17" value="${esc(v.phone)}" placeholder="10-digit mobile number"></div></div>`}
+    <h3 class="psec">Showroom text</h3>
+    <div class="fl"><label for="hero_badge">Badge at the top of the showroom (optional)</label><input class="fi" id="hero_badge" maxlength="60" value="${esc(v.hero_badge)}"></div>
+    <div class="fl"><label>Promises shown on every car page <small class="hint">only what is true for your business</small></label>
+    ${v.trust_points.map((t, i) => `<div class="tp"><input class="fi tpi" data-i="${i}" maxlength="80" value="${esc(t)}"><button type="button" class="round" data-tprm="${i}" aria-label="Remove">${ic('x', 'sm')}</button></div>`).join('')}
+    ${v.trust_points.length < 6 ? `<button type="button" class="linkbtn" id="tpadd" style="margin-top:8px">${ic('plus', 'sm')}Add a promise</button>` : ''}</div>
+    <div class="err" id="err" style="margin:12px 20px 0"></div>
+    <div class="fl"><button class="b pri" id="save">Save profile</button></div></form>
+    <h3 class="psec">Login email</h3>
+    <form id="ef" class="fl" novalidate><label for="email">Email used to log in</label><div class="two" style="grid-template-columns:1fr auto;gap:8px"><input class="fi" id="email" type="email" value="${esc(sess.email)}"><button class="b ghost" style="width:auto">Change</button></div><p class="hint" id="emsg">${LIVE ? 'We send a confirmation link to the new email before the change happens.' : ''}</p></form>
+    <h3 class="psec">More</h3>
+    <div class="actions" style="grid-template-columns:1fr"><button class="b ghost" id="csv">${ic('download')}Download backup (Excel / CSV)</button><button class="b ghost" id="link">${ic('share')}Share showroom link</button>
+    ${LIVE ? '' : `<button class="b ghost" id="reset">Reset demo data</button>`}<button class="b red" id="out">${ic('logout')}Log out</button></div>
+    <p class="foot">Tip: download a backup once a week and keep it in Google Drive.</p>${nav('more', data.offers.filter((o) => o.status === 'new').length)}`);
+    const $ = (id) => document.getElementById(id);
+    const grab = () => { ['business_name', 'tagline', 'whatsapp', 'phone', 'hero_badge'].forEach((k) => { if ($(k)) v[k] = $(k).value; }); document.querySelectorAll('.tpi').forEach((el) => { v.trust_points[+el.dataset.i] = el.value; }); };
+    $('same').onchange = (e) => { grab(); same = e.target.checked; draw(); };
+    $('tpadd')?.addEventListener('click', () => { grab(); v.trust_points.push(''); draw(); document.querySelector('.tpi:last-of-type')?.focus(); });
+    document.querySelectorAll('[data-tprm]').forEach((b) => (b.onclick = () => { grab(); v.trust_points.splice(+b.dataset.tprm, 1); draw(); }));
+    $('pf').onsubmit = async (e) => {
+      e.preventDefault(); grab();
+      const wa = ten(v.whatsapp), ph = same ? wa : ten(v.phone), tps = v.trust_points.map((t) => t.trim()).filter(Boolean);
+      const err = v.business_name.trim().length < 2 ? 'Enter the business name.' : !/^[6-9]\d{9}$/.test(wa) ? 'Enter a valid 10-digit WhatsApp number.' : !/^[6-9]\d{9}$/.test(ph) ? 'Enter a valid 10-digit number for calls.' : '';
+      if (err) { $('err').textContent = err; return; }
+      const st = { business_name: v.business_name.trim(), tagline: v.tagline.trim(), whatsapp: wa, phone: ph, hero_badge: v.hero_badge.trim(), trust_points: tps };
+      $('save').disabled = true; $('save').textContent = 'Saving…';
+      try { await store.saveSettings(st); applySettings(st); if (!tps.length) CONFIG.trustPoints = []; toast('Profile saved'); profile(); }
+      catch (ex) { fail(ex); $('save').disabled = false; $('save').textContent = 'Save profile'; }
+    };
+    $('ef').onsubmit = async (e) => {
+      e.preventDefault(); const em = $('email').value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { $('emsg').textContent = 'Enter a valid email.'; $('emsg').classList.add('err'); return; }
+      if (em === sess.email) { $('emsg').textContent = 'That is already your login email.'; return; }
+      try { const r = await store.changeEmail(em); $('emsg').classList.remove('err'); $('emsg').textContent = r === 'confirm' ? `Check ${em} and click the confirmation link to finish the change.` : 'Login email changed.'; if (r !== 'confirm') sess.email = em; }
+      catch (ex) { $('emsg').textContent = ex.message; $('emsg').classList.add('err'); }
+    };
+    $('csv').onclick = () => {
+      // Cells starting with = + - @ would run as formulas in Excel: prefix them with ' so they stay plain text.
+      const q = (x) => { let t = String(x ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`; return `"${t.replace(/"/g, '""')}"`; };
+      const cars = enrich(data).map((c) => [c.name, c.year, c.km, c.fuel, c.status, c.price, c.costs?.buy_price, c.cs.spent, Math.round(c.cs.interest), Math.round(c.cs.total), c.costs?.sold_price ?? '', c.costs?.bought_on, c.sold_on ?? '', c.offers.length]);
+      const offers = enrich(data).flatMap((c) => c.offers.map((o) => [c.name, o.name, o.phone, o.amount, o.status, o.created_at]));
+      const csv = [['Car', 'Year', 'KM', 'Fuel', 'Status', 'Asking price', 'Bought for', 'Expenses', 'Interest', 'Total cost', 'Sold for', 'Bought on', 'Sold on', 'Offers'], ...cars, [], ['OFFERS'], ['Car', 'Buyer', 'Phone', 'Amount', 'Status', 'Received'], ...offers].map((r) => r.map(q).join(',')).join('\n');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = `vahana-motors-backup-${localISO()}.csv`; a.click();
+    };
+    $('link').onclick = async () => { const url = `${location.origin}${location.pathname}#/`; try { if (navigator.share) await navigator.share({ title: CONFIG.businessName, url }); else { await navigator.clipboard.writeText(url); toast('Showroom link copied'); } } catch {} };
+    $('reset')?.addEventListener('click', async () => { if (await ask('Reset demo?', 'All demo cars, offers and profile changes go back to the sample data.', 'Reset', true)) { await store.resetDemo(); location.reload(); } });
+    $('out').onclick = async () => { await store.signOut(); go('#/'); };
   };
-  $('link').onclick = async () => { const url = `${location.origin}${location.pathname}#/`; try { if (navigator.share) await navigator.share({ title: CONFIG.businessName, url }); else { await navigator.clipboard.writeText(url); toast('Showroom link copied'); } } catch {} };
-  $('reset')?.addEventListener('click', async () => { if (await ask('Reset demo?', 'All demo cars and offers go back to the sample data.', 'Reset', true)) { await store.resetDemo(); toast('Demo data reset'); go('#/owner'); } });
-  $('out').onclick = async () => { await store.signOut(); go('#/'); };
+  draw();
 }
 
 // ═════════════════════════ ROUTER ═════════════════════════
@@ -429,7 +559,7 @@ async function route() {
       if (page === 'offers') return await offersPage(id);
       if (page === 'add') return await carForm();
       if (page === 'edit') return await carForm(id);
-      if (page === 'more') return await more();
+      if (page === 'more' || page === 'profile') return await profile();
     }
     go('#/');
   } catch (e) {
@@ -442,4 +572,4 @@ async function route() {
 // Optional free Cloudflare Web Analytics (no cookies). Add the token in config.js to turn it on.
 if (CONFIG.cfAnalyticsToken) { const sc = document.createElement('script'); sc.defer = true; sc.src = 'https://static.cloudflareinsights.com/beacon.min.js'; sc.dataset.cfBeacon = JSON.stringify({ token: CONFIG.cfAnalyticsToken }); document.head.appendChild(sc); }
 addEventListener('hashchange', route);
-route();
+store.getSettings().then(applySettings).catch(() => {}).finally(route);

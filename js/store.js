@@ -96,7 +96,11 @@ const demo = {
     for (const b of blobs) urls.push(await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); }));
     return urls;
   },
-  async resetDemo() { LS.removeItem(KEY); },
+  async resetDemo() { LS.removeItem(KEY); LS.removeItem('km-settings'); },
+  async getSettings() { try { return JSON.parse(LS.getItem('km-settings')) || null; } catch { return null; } },
+  async saveSettings(v) { LS.setItem('km-settings', JSON.stringify(v)); },
+  async changeEmail(email) { SS.setItem('km-demo-login', email); return 'changed'; },
+  async identify(images) { return identifyCall(images, null); },
 };
 
 // ───────────────────────── LIVE (Supabase) ─────────────────────────
@@ -136,6 +140,10 @@ const live = {
   async session() { const c = await sb(); const { data } = await c.auth.getSession(); return data.session ? { email: data.session.user.email } : null; },
   async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })); },
   async verifyCode(email, token) { const c = await sb(); ok(await c.auth.verifyOtp({ email, token, type: 'email' })); },
+  async getSettings() { const c = await sb(); return ok(await c.from('settings').select('business_name,tagline,whatsapp,phone,hero_badge,trust_points').eq('id', 1).maybeSingle()); },
+  async saveSettings(v) { const c = await sb(); ok(await c.from('settings').update({ ...v, updated_at: new Date().toISOString() }).eq('id', 1)); },
+  async changeEmail(email) { const c = await sb(); ok(await c.auth.updateUser({ email })); return 'confirm'; },
+  async identify(images) { const c = await sb(); const { data } = await c.auth.getSession(); return identifyCall(images, data.session?.access_token); },
   async isOwner() { const c = await sb(); const rows = ok(await c.from('owners').select('user_id').limit(1)); return rows.length > 0; },
   async signOut() { const c = await sb(); await c.auth.signOut(); },
   async ownerData() {
@@ -167,5 +175,17 @@ const live = {
     return urls;
   },
 };
+
+// Photo auto-fill: calls the Cloudflare function /api/identify (owner only on the live site).
+async function identifyCall(images, token) {
+  let r;
+  try {
+    r = await fetch('api/identify', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ images }) });
+  } catch { throw new Error('No internet connection. Please try again.'); }
+  if ([404, 405, 501].includes(r.status)) throw new Error('Photo detection starts working after the app moves to Cloudflare (see README).');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'Could not read the photo. Please fill the details by hand.');
+  return j;
+}
 
 export const store = LIVE ? live : demo;

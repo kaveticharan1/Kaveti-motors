@@ -30,7 +30,7 @@ Owner area: `#/owner`, any email, any 6-digit code.
 6. **Project Settings → API**: copy the **Project URL** and the **anon public** key into `config.js`.
 
 ### 2. Business details
-Edit `config.js`: business name, tagline, WhatsApp number (`91` + 10 digits), phone.
+Log in as the owner and open **Profile**: business name, tagline, WhatsApp and call numbers, login email, showroom badge and the promises shown on car pages. These are saved in the database (`settings` table). `config.js` only holds the defaults.
 
 ### 3. GitHub Pages
 1. Push this folder to a GitHub repository.
@@ -72,7 +72,8 @@ Tests (all pass on PostgreSQL 16): `supabase/tests/security-tests.sql` (24 check
 3. Your site is live at `https://<project>.pages.dev`. Every push to `main` updates it.
 4. In `config.js` set `prettyLinks: true`. Shared car links become `/car/<name>` and show the car's
    photo, name and price in WhatsApp (handled by `functions/car/[slug].js`).
-5. Optional: add a Cloudflare Web Analytics token as `cfAnalyticsToken` for free, cookie-free visitor stats.
+5. **Photo auto-fill (free):** Pages project → Settings → Bindings → Add → **Workers AI**, variable name `AI`. Redeploy. The "Fill details from photos" button in Add a car then works for the logged-in owner (`functions/api/identify.js`). Cloudflare's free plan includes a daily allowance that covers hundreds of photo checks.
+6. Optional: add a Cloudflare Web Analytics token as `cfAnalyticsToken` for free, cookie-free visitor stats.
 
 ## Upgrading the database
 `supabase/schema.sql` is safe to run again: it adds new columns, rules and limits without touching data.
