@@ -32,5 +32,5 @@ export function costSheet(car, costs, expenses = []) {
 }
 
 export const inr = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
-export const lakh = (n) => '₹' + (n / 100000).toFixed(2) + ' L';
+export const lakh = (n) => (n >= 1e7 ? '₹' + (n / 1e7).toFixed(2) + ' Cr' : '₹' + (n / 100000).toFixed(2) + ' L');
 export const kmFmt = (n) => Number(n).toLocaleString('en-IN');

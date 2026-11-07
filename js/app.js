@@ -1,18 +1,22 @@
 import { CONFIG } from '../config.js';
 import { store, LIVE } from './store.js';
 import { costSheet, inr, lakh, kmFmt, localISO } from './calc.js';
-import { ic, esc, photo, toast, compressImage, slugify } from './ui.js';
+import { ic, esc, photo, toast, compressImage, slugify, ask } from './ui.js';
 
 const $app = document.getElementById('app');
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const num = (s) => Number(digits(s) || 0);
-const carUrl = (slug) => `${location.origin}${location.pathname}#/car/${slug}`;
+// Share links: /car/<slug> on Cloudflare (gives WhatsApp a photo preview), #/car/<slug> elsewhere.
+const carUrl = (slug) => (CONFIG.prettyLinks ? `${location.origin}/car/${slug}` : `${location.origin}${location.pathname}#/car/${slug}`);
+const isNew = (c) => c.listed_on && (Date.now() - new Date(c.listed_on + 'T00:00:00')) / 864e5 <= 7;
+const dropped = (c) => c.prev_price && c.prev_price > c.price;
 const ownerLabel = (n) => ['1st', '2nd', '3rd'][n - 1] || `${n}th`;
 const go = (h) => { location.hash = h; };
 const demoBar = () => (LIVE ? '' : '<div class="demo">Demo mode · sample cars saved on this phone only</div>');
 const initials = (n) => n.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 const ago = (t) => { const h = Math.round((Date.now() - new Date(t)) / 36e5); return h < 1 ? 'just now' : h < 24 ? `${h} hr${h > 1 ? 's' : ''} ago` : `${Math.round(h / 24)} day${h >= 48 ? 's' : ''} ago`; };
 const left = (t) => { const ms = new Date(t) - Date.now(); if (ms <= 0) return null; const d = Math.floor(ms / 864e5), h = Math.floor((ms % 864e5) / 36e5); return d ? `${d} day${d > 1 ? 's' : ''} ${h} hrs` : `${h} hrs ${Math.floor((ms % 36e5) / 6e4)} min`; };
+const skeleton = () => `<header class="top"><div class="wrap topin"><span class="brandl"><img class="mark" src="icons/logo.svg" alt=""><div><b>${esc(CONFIG.businessName)}</b><small>${esc(CONFIG.tagline)}</small></div></span></div></header><div class="wrap"><div class="grid skel" style="margin-top:20px">${'<div class="car"><div class="ph sk"></div><div class="bd"><div class="sk l1"></div><div class="sk l2"></div><div class="sk l3"></div></div></div>'.repeat(3)}</div></div>`;
 function render(html) { $app.innerHTML = html; window.scrollTo(0, 0); }
 function fail(e) { console.error(e); toast(e.message || 'Something went wrong. Please try again.'); }
 
@@ -71,15 +75,15 @@ async function showroom() {
   draw();
 }
 function card(c) {
-  return `<a class="car" href="#/car/${esc(c.slug)}"><div class="ph">${photo(c, c.photos[0])}<span class="tag">${ic('fuel', 'sm')}${esc(c.fuel)}</span>${c.status === 'booked' ? '<span class="tag bk">Booked</span>' : ''}${c.photos.length > 1 ? `<span class="pc">${ic('camera', 'sm')}${c.photos.length}</span>` : ''}</div>
+  return `<a class="car" href="#/car/${esc(c.slug)}"><div class="ph">${photo(c, c.photos[0])}<span class="tag">${ic('fuel', 'sm')}${esc(c.fuel)}</span>${c.status === 'booked' ? '<span class="tag bk">Booked</span>' : dropped(c) ? `<span class="tag dr">${inr(c.prev_price - c.price)} off</span>` : isNew(c) ? '<span class="tag nw">New</span>' : ''}${c.photos.length > 1 ? `<span class="pc">${ic('camera', 'sm')}${c.photos.length}</span>` : ''}</div>
   <div class="bd"><div class="nm">${esc(c.name)}</div><div class="meta"><span>${c.year}</span><span>${kmFmt(c.km)} km</span><span>${ownerLabel(c.owner_no)} owner</span><span>${esc(c.transmission)}</span></div>
-  <div class="pr"><div><b>${lakh(c.price)}</b><small class="emi">EMI from ${inr(emi(c.price))}/mo</small></div>${c.interested ? `<small class="hot">${ic('users', 'sm')}${c.interested} interested</small>` : ''}</div></div></a>`;
+  <div class="pr"><div><b>${lakh(c.price)}</b>${dropped(c) ? ` <s class="was">${lakh(c.prev_price)}</s>` : ''}<small class="emi">EMI from ${inr(emi(c.price))}/mo</small></div>${c.interested ? `<small class="hot">${ic('users', 'sm')}${c.interested} interested</small>` : ''}</div></div></a>`;
 }
 // Rough EMI estimate: 80% loan, 11% a year, 5 years. Shown with a clear "estimate" note on the car page.
 function emi(price, share = 0.8, rate = 11, months = 60) { const P = price * share, r = rate / 1200; return (P * r * (1 + r) ** months) / ((1 + r) ** months - 1); }
 
 async function carPage(slug) {
-  const c = await store.getCarBySlug(slug);
+  const [c, all] = await Promise.all([store.getCarBySlug(slug), store.listCars()]);
   if (!c) return render(`${topBar(false)}<div class="wrap"><div class="empty">This car may have been sold. <a href="#/" style="color:var(--p);font-weight:700">See all cars</a></div></div>`);
   const pics = c.photos.length ? c.photos : [null];
   const open = c.status !== 'sold' && c.offers_open && (!c.offers_close_at || new Date(c.offers_close_at) > new Date());
@@ -93,8 +97,8 @@ async function carPage(slug) {
   ${pics.length > 1 ? `<button class="arr l" id="prev" aria-label="Previous photo">${ic('back')}</button><button class="arr r" id="next" aria-label="Next photo">${ic('chev')}</button>` : ''}<span class="cnt" id="cnt">1 / ${pics.length}</span></div>
   ${pics.length > 1 ? `<div class="thumbs">${pics.map((p, i) => `<button data-i="${i}" class="${i ? '' : 'on'}" aria-label="Photo ${i + 1}">${photo(c, p)}</button>`).join('')}</div>` : ''}</div>
   <aside class="dinfo"><div class="ibox"><h1>${esc(c.name)}</h1><div class="sub">${c.year} · ${kmFmt(c.km)} km · ${esc(c.fuel)} · ${esc(c.transmission)}</div>
-  <div class="row"><span class="price">${lakh(c.price)}</span>${c.interested ? `<span class="interest">${ic('users', 'sm')}${c.interested} ${c.interested === 1 ? 'person' : 'people'} interested</span>` : ''}</div>
-  <div class="emiline">EMI from <b>${inr(emi(c.price))}/month</b>*</div>
+  <div class="row"><span class="price">${lakh(c.price)}${dropped(c) ? ` <s class="was">${lakh(c.prev_price)}</s>` : ''}</span>${c.interested ? `<span class="interest">${ic('users', 'sm')}${c.interested} ${c.interested === 1 ? 'person' : 'people'} interested</span>` : ''}</div>
+  ${dropped(c) ? `<div class="dropline">${ic('trend', 'sm')}Price dropped by ${inr(c.prev_price - c.price)}</div>` : ''}<div class="emiline">EMI from <b>${inr(emi(c.price))}/month</b>*</div>
   ${c.status === 'booked' ? '<span class="status">Booked · you can still make a backup offer</span>' : ''}${c.status === 'sold' ? '<span class="status">Sold</span>' : ''}
   <div class="bar">${open ? `<button class="b pri" id="offer">${ic('tag')}Make an offer</button>` : ''}
   <div class="btns"><a class="b wa" href="${wa}" target="_blank" rel="noopener">${ic('chat')}WhatsApp</a><a class="b ghost" href="tel:${esc(CONFIG.phone)}">${ic('phone')}Call</a></div></div>
@@ -103,11 +107,14 @@ async function carPage(slug) {
   <div class="more"><h2 class="h2">Car details</h2><div class="specs">${[['cal', 'Year', c.year], ['gauge', 'Driven', kmFmt(c.km) + ' km'], ['fuel', 'Fuel', c.fuel], ['user', 'Owner', ownerLabel(c.owner_no)], ['gear', 'Gearbox', c.transmission], ['shield', 'Insurance', c.insurance_till || '—'], ...(c.colour ? [['car', 'Colour', c.colour]] : [])]
     .map(([i, l, v]) => `<div class="sp">${ic(i)}<small>${l}</small><b>${esc(v)}</b></div>`).join('')}</div>
   ${c.description ? `<h2 class="h2">From the seller</h2><div class="desc">${esc(c.description)}</div>` : ''}
+  ${(() => { const sim = all.filter((x) => x.id !== c.id && (x.fuel === c.fuel || Math.abs(x.price - c.price) <= c.price * 0.3)).sort((a, b) => Math.abs(a.price - c.price) - Math.abs(b.price - c.price)).slice(0, 3);
+    return sim.length ? `<h2 class="h2">Similar cars</h2><div class="grid sim">${sim.map(card).join('')}</div>` : ''; })()}
   <p class="note">*EMI is an estimate for an 80% loan at 11% a year over 5 years. Your bank's rate and terms decide the actual EMI.</p></div></div>${siteFoot()}`);
   const trk = document.getElementById('trk');
   const goTo = (i) => trk.scrollTo({ left: i * trk.clientWidth, behavior: 'smooth' });
   const cur = () => Math.round(trk.scrollLeft / trk.clientWidth);
-  trk.addEventListener('scroll', () => { const i = cur(); document.getElementById('cnt').textContent = `${i + 1} / ${pics.length}`; document.querySelectorAll('.thumbs button').forEach((b) => b.classList.toggle('on', +b.dataset.i === i)); });
+  const cntEl = document.getElementById('cnt'), thumbs = [...document.querySelectorAll('.thumbs button')];
+  trk.addEventListener('scroll', () => { if (!trk.isConnected) return; const i = cur(); cntEl.textContent = `${i + 1} / ${pics.length}`; thumbs.forEach((b) => b.classList.toggle('on', +b.dataset.i === i)); });
   document.getElementById('prev')?.addEventListener('click', () => goTo((cur() - 1 + pics.length) % pics.length));
   document.getElementById('next')?.addEventListener('click', () => goTo((cur() + 1) % pics.length));
   document.querySelectorAll('.thumbs button').forEach((b) => b.addEventListener('click', () => goTo(+b.dataset.i)));
@@ -133,6 +140,7 @@ function offerSheet(c) {
   <div class="err" id="err"></div><button class="b pri" style="margin-top:14px" id="send">Send offer</button></form>`;
   document.body.appendChild(wrap);
   const $ = (id) => wrap.querySelector('#' + id);
+  $('amt').focus();
   const fmt = () => { const v = num($('amt').value); $('amt').value = v ? '₹' + v.toLocaleString('en-IN') : ''; };
   $('amt').addEventListener('input', fmt);
   wrap.querySelectorAll('[data-v]').forEach((b) => b.addEventListener('click', () => { $('amt').value = b.dataset.v; fmt(); }));
@@ -140,7 +148,7 @@ function offerSheet(c) {
   wrap.querySelector('form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const amount = num($('amt').value), name = $('nm').value.trim(), phone = digits($('ph').value).replace(/^(91|0)(?=\d{10}$)/, '');
-    const err = amount < 10000 ? 'Enter your offer amount.' : name.length < 2 ? 'Enter your name.' : !/^[6-9]\d{9}$/.test(phone) ? 'Enter a valid 10-digit mobile number.' : '';
+    const err = amount < 10000 ? 'Enter your offer amount.' : amount > c.price * 3 ? `That is more than 3 times the asking price (${lakh(c.price)}). Please check the amount.` : !/\p{L}.*\p{L}/u.test(name) ? 'Enter your name.' : !/^[6-9]\d{9}$/.test(phone) ? 'Enter a valid 10-digit mobile number.' : '';
     if (err) { $('err').textContent = err; return; }
     $('send').disabled = true; $('send').textContent = 'Sending…';
     try {
@@ -239,10 +247,10 @@ async function costPage(id) {
   </div><div class="actions" style="grid-template-columns:1fr"><button class="b red sm" id="del">${ic('trash', 'sm')}Delete car</button></div>${nav('', 0)}`);
   document.getElementById('ex').onsubmit = async (e) => { e.preventDefault(); const l = document.getElementById('el').value.trim(), a = num(document.getElementById('ea').value);
     if (!l || !a) return toast('Enter what it was for and the amount.'); try { await store.addExpense(c.id, l, a); toast('Expense added'); costPage(id); } catch (ex) { fail(ex); } };
-  document.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { if (confirm('Remove this expense?')) { try { await store.deleteExpense(b.dataset.del); costPage(id); } catch (ex) { fail(ex); } } }));
+  document.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { if (await ask('Remove expense?', 'This expense will be removed from the cost sheet.', 'Remove', true)) { try { await store.deleteExpense(b.dataset.del); costPage(id); } catch (ex) { fail(ex); } } }));
   document.querySelectorAll('[data-st]').forEach((b) => (b.onclick = async () => { try { await store.updateCar(c.id, { status: b.dataset.st, ...(b.dataset.st === 'available' ? { sold_on: null } : {}) }); costPage(id); } catch (ex) { fail(ex); } }));
   document.getElementById('sold')?.addEventListener('click', () => soldSheet(c));
-  document.getElementById('del').onclick = async () => { if (confirm(`Delete ${c.name} and all its costs and offers? This cannot be undone.`)) { try { await store.deleteCar(c.id); toast('Car deleted'); go('#/owner'); } catch (ex) { fail(ex); } } };
+  document.getElementById('del').onclick = async () => { if (await ask(`Delete ${c.name}?`, 'The car, its costs and all its offers will be deleted. This cannot be undone.', 'Delete car', true)) { try { await store.deleteCar(c.id); toast('Car deleted'); go('#/owner'); } catch (ex) { fail(ex); } } };
 }
 
 function soldSheet(c) {
@@ -298,17 +306,18 @@ async function carForm(id) {
   const d = id ? enrich(await store.ownerData()).find((x) => x.id === id) : null;
   if (id && !d) return go('#/owner');
   const today = localISO();
-  const f = d ? { ...d, ...(d.costs || {}), photos: [...d.photos], newPhotos: [] }
-    : { name: '', year: '', km: '', fuel: 'Diesel', transmission: 'Manual', owner_no: 1, colour: '', insurance_till: '', price: '', description: '', buy_price: '', bought_on: today, loan_amount: '', interest_rate: '', offers_open: true, offers_close_at: '', photos: [], newPhotos: [] };
+  const f = d ? { ...d, ...(d.costs || {}), pics: d.photos.map((u) => ({ url: u })) }
+    : { name: '', year: '', km: '', fuel: 'Diesel', transmission: 'Manual', owner_no: 1, colour: '', insurance_till: '', price: '', description: '', buy_price: '', bought_on: today, loan_amount: '', interest_rate: '', offers_open: true, offers_close_at: '', pics: [] };
   let step = 1;
   const seg = (k, opts) => `<div class="seg" data-k="${k}">${opts.map((o) => `<button type="button" data-v="${o}" class="${String(f[k]) === String(o) ? 'on' : ''}">${o}</button>`).join('')}</div>`;
   const inp = (k, l, attrs = '', hint = '') => `<div class="fl"><label for="${k}">${l}</label><input class="fi" id="${k}" value="${esc(f[k] ?? '')}" ${attrs}>${hint}</div>`;
   const moneyHint = (k) => `<p class="hint" data-h="${k}">${num(f[k]) ? lakh(num(f[k])) : ''}</p>`;
   const draw = () => {
-    const pics = [...f.photos.map((u, i) => ({ u, i, old: true })), ...f.newPhotos.map((p, i) => ({ u: p.url, i, old: false }))];
+    const pics = f.pics;
     const body = step === 1 ? `<div class="slabel">Step 1 of 3</div><div class="stitle">Photos and details</div>
-      <div class="pg">${pics.map((p) => `<div><img src="${esc(p.u)}" alt=""><button type="button" data-rm="${p.old ? 'o' : 'n'}${p.i}" aria-label="Remove photo">${ic('x', 'sm')}</button></div>`).join('')}</div>
+      <div class="pg">${pics.map((p, i) => `<div class="${i ? '' : 'cover'}"><img src="${esc(p.url)}" alt="">${i ? `<button type="button" class="mkcover" data-cover="${i}">${ic('check', 'sm')}Cover</button>` : '<span class="covtag">Cover photo</span>'}<button type="button" data-rm="${i}" aria-label="Remove photo">${ic('x', 'sm')}</button></div>`).join('')}</div>
       <label class="cam">${ic('camera')}${pics.length ? 'Add more photos' : 'Add photos'}<input type="file" id="pick" accept="image/*" multiple hidden></label>
+      ${pics.length < 6 ? `<p class="hint" style="margin:8px 20px 0">Tip: 6–10 bright daylight photos sell faster: front corner, side, back, dashboard showing km, front and back seats, tyres.</p>` : ''}
       ${inp('name', 'Car name and model', 'maxlength="80" placeholder="e.g. Maruti Swift VDI"')}
       <div class="fl two"><div><label for="year">Year</label><input class="fi" id="year" inputmode="numeric" maxlength="4" value="${esc(f.year)}"></div><div><label for="km">KM driven</label><input class="fi" id="km" inputmode="numeric" value="${esc(f.km)}"></div></div>
       <div class="fl"><label>Fuel</label>${seg('fuel', ['Diesel', 'Petrol', 'CNG'])}</div>
@@ -332,20 +341,23 @@ async function carForm(id) {
       s.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); })));
     document.querySelectorAll('[data-h]').forEach((h) => $(h.dataset.h).addEventListener('input', (e) => { h.textContent = num(e.target.value) ? lakh(num(e.target.value)) : ''; }));
     $('pick')?.addEventListener('change', async (e) => {
-      for (const file of e.target.files) { try { const blob = await compressImage(file, LIVE ? 1280 : 640, LIVE ? 0.72 : 0.6); f.newPhotos.push({ blob, url: URL.createObjectURL(blob) }); } catch (ex) { fail(ex); } }
+      for (const file of e.target.files) { try { const blob = await compressImage(file, LIVE ? 1280 : 640, LIVE ? 0.72 : 0.6); f.pics.push({ blob, url: URL.createObjectURL(blob) }); } catch (ex) { fail(ex); } }
       collect(); draw();
     });
-    document.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => { collect(); const t = b.dataset.rm[0], i = +b.dataset.rm.slice(1); (t === 'o' ? f.photos : f.newPhotos).splice(i, 1); draw(); }));
+    document.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = () => { collect(); f.pics.splice(+b.dataset.rm, 1); draw(); }));
+    document.querySelectorAll('[data-cover]').forEach((b) => (b.onclick = () => { collect(); const [p] = f.pics.splice(+b.dataset.cover, 1); f.pics.unshift(p); draw(); toast('Cover photo changed'); }));
     $('cancel').onclick = () => { collect(); if (step > 1) { step--; draw(); } else history.back(); };
     $('next').onclick = async () => {
       collect(); const err = validate(); if (err) { $('err').textContent = err; return; }
+      for (const [t, m] of warnings()) { if (!(await ask(t, m, 'Yes, it is correct'))) return; }
       if (step < 3) { step++; return draw(); }
       $('next').disabled = true; $('next').textContent = 'Saving…';
       try {
         const slug = d ? d.slug : slugify(f.name, f.year);
-        const uploaded = f.newPhotos.length ? await store.uploadPhotos(slug, f.newPhotos.map((p) => p.blob)) : [];
+        const fresh = f.pics.filter((p) => p.blob), up = fresh.length ? await store.uploadPhotos(slug, fresh.map((p) => p.blob)) : [];
+        const photos = f.pics.map((p) => (p.blob ? up[fresh.indexOf(p)] : p.url));
         const car = { name: f.name.trim(), year: num(f.year), km: num(f.km), fuel: f.fuel, transmission: f.transmission, owner_no: Number(f.owner_no), colour: f.colour.trim() || null, insurance_till: f.insurance_till.trim() || null,
-          description: f.description.trim() || null, price: num(f.price), photos: [...f.photos, ...uploaded], offers_open: !!f.offers_open, offers_close_at: f.offers_close_at ? new Date(f.offers_close_at).toISOString() : null };
+          description: f.description.trim() || null, price: num(f.price), photos, offers_open: !!f.offers_open, offers_close_at: f.offers_close_at ? new Date(f.offers_close_at).toISOString() : null };
         if (d) car.id = d.id; else car.slug = slug;
         const costs = { buy_price: num(f.buy_price), bought_on: f.bought_on || today, loan_amount: num(f.loan_amount), interest_rate: Number(String(f.interest_rate || 0).replace(/[^\d.]/g, '')) || 0 };
         const newId = await store.saveCar(car, costs);
@@ -354,6 +366,15 @@ async function carForm(id) {
     };
   };
   const collect = () => { document.querySelectorAll('.fi').forEach((el) => { if (el.id && el.id in f) f[el.id] = el.value; }); };
+  // "Are you sure?" checks for likely typos (extra zeros) and selling at a loss.
+  const warnings = () => {
+    const w = [], p = num(f.price), k = num(f.km), b = num(f.buy_price);
+    if (step === 1 && p > 10000000) w.push(['Check the price', `The asking price is ${lakh(p)} (${inr(p)}). Is that correct?`]);
+    if (step === 1 && k > 500000) w.push(['Check the KM', `KM driven is ${kmFmt(k)} km. Is that correct?`]);
+    if (step === 2 && b > 10000000) w.push(['Check the price', `You bought it for ${inr(b)}. Is that correct?`]);
+    if (step === 2 && b && p && b > p) w.push(['Asking price is below cost', `You bought it for ${inr(b)} but the asking price is ${inr(p)}, a loss of ${inr(b - p)} before expenses. Continue?`]);
+    return w;
+  };
   const validate = () => {
     if (step === 1) {
       if (f.name.trim().length < 2) return 'Enter the car name.';
@@ -377,14 +398,15 @@ async function more() {
   <p class="foot">Tip: download a backup once a week and keep it in Google Drive.</p>${nav('more', data.offers.filter((o) => o.status === 'new').length)}`);
   const $ = (id) => document.getElementById(id);
   $('csv').onclick = () => {
-    const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    // Cells starting with = + - @ would run as formulas in Excel: prefix them with ' so they stay plain text.
+    const q = (v) => { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`; return `"${t.replace(/"/g, '""')}"`; };
     const cars = enrich(data).map((c) => [c.name, c.year, c.km, c.fuel, c.status, c.price, c.costs?.buy_price, c.cs.spent, Math.round(c.cs.interest), Math.round(c.cs.total), c.costs?.sold_price ?? '', c.costs?.bought_on, c.sold_on ?? '', c.offers.length]);
     const offers = enrich(data).flatMap((c) => c.offers.map((o) => [c.name, o.name, o.phone, o.amount, o.status, o.created_at]));
     const csv = [['Car', 'Year', 'KM', 'Fuel', 'Status', 'Asking price', 'Bought for', 'Expenses', 'Interest', 'Total cost', 'Sold for', 'Bought on', 'Sold on', 'Offers'], ...cars, [], ['OFFERS'], ['Car', 'Buyer', 'Phone', 'Amount', 'Status', 'Received'], ...offers].map((r) => r.map(q).join(',')).join('\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = `vahana-motors-backup-${localISO()}.csv`; a.click();
   };
   $('link').onclick = async () => { const url = `${location.origin}${location.pathname}#/`; try { if (navigator.share) await navigator.share({ title: CONFIG.businessName, url }); else { await navigator.clipboard.writeText(url); toast('Showroom link copied'); } } catch {} };
-  $('reset')?.addEventListener('click', async () => { if (confirm('Reset all demo cars and offers?')) { await store.resetDemo(); toast('Demo data reset'); go('#/owner'); } });
+  $('reset')?.addEventListener('click', async () => { if (await ask('Reset demo?', 'All demo cars and offers go back to the sample data.', 'Reset', true)) { await store.resetDemo(); toast('Demo data reset'); go('#/owner'); } });
   $('out').onclick = async () => { await store.signOut(); go('#/'); };
 }
 
@@ -395,6 +417,7 @@ async function route() {
   const h = location.hash.slice(1) || '/', p = h.split('/').filter(Boolean);
   document.body.dataset.area = p[0] === 'owner' ? 'owner' : 'buyer';
   try {
+    if (p[0] !== 'owner' && !$app.querySelector('.top')) render(skeleton());
     if (!p.length) return await showroom();
     if (p[0] === 'car') return await carPage(decodeURIComponent(p[1] || ''));
     if (p[0] === 'owner') {
@@ -414,5 +437,9 @@ async function route() {
     render(`<div class="empty">Could not load. Check your internet and try again.<br><br><button class="b ghost sm" onclick="location.reload()">Retry</button></div>`);
   }
 }
+// Arrived from a shared /car/<slug> link (Cloudflare): switch to the in-app address.
+{ const m = location.pathname.match(/\/car\/([^/]+)\/?$/); if (m) history.replaceState(null, '', `/#/car/${m[1]}`); }
+// Optional free Cloudflare Web Analytics (no cookies). Add the token in config.js to turn it on.
+if (CONFIG.cfAnalyticsToken) { const sc = document.createElement('script'); sc.defer = true; sc.src = 'https://static.cloudflareinsights.com/beacon.min.js'; sc.dataset.cfBeacon = JSON.stringify({ token: CONFIG.cfAnalyticsToken }); document.head.appendChild(sc); }
 addEventListener('hashchange', route);
 route();

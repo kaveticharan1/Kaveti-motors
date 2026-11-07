@@ -7,6 +7,11 @@ import { localISO } from './calc.js';
 export const LIVE = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
 
 const iso = (d) => localISO(d);
+const MSG = {
+  duplicate: 'You have already sent an offer for this car from this number.',
+  closed: 'Offers are closed for this car.',
+  tooMany: 'This car got many offers in the last hour. Please try again later, or WhatsApp us.',
+};
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return iso(d); };
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now());
 
@@ -39,34 +44,44 @@ function seed() {
     ],
   };
 }
+// Browser storage can be blocked (private mode, some in-app browsers). Fall back to memory so the app still works.
+const mem = {};
+const safe = (area) => ({
+  getItem: (k) => { try { return window[area].getItem(k); } catch { return mem[area + k] ?? null; } },
+  setItem: (k, v) => { try { window[area].setItem(k, v); } catch { mem[area + k] = String(v); } },
+  removeItem: (k) => { try { window[area].removeItem(k); } catch {} delete mem[area + k]; },
+});
+export const LS = safe('localStorage'), SS = safe('sessionStorage');
 const KEY = 'km-demo-v1';
-const load = () => { try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && d.cars) return d; } catch {} const s = seed(); save(s); return s; };
-const save = (d) => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) { throw new Error('Phone storage is full. Remove some demo photos.'); } };
+const load = () => { try { const d = JSON.parse(LS.getItem(KEY)); if (d && d.cars) return d; } catch {} const s = seed(); save(s); return s; };
+const save = (d) => { try { LS.setItem(KEY, JSON.stringify(d)); } catch (e) { throw new Error('Phone storage is full. Remove some demo photos.'); } };
+const confirmedCount = (d, id) => d.offers.filter((o) => o.car_id === id && (o.status === 'confirmed' || o.status === 'accepted')).length;
 
 const demo = {
   async listCars() {
     const d = load();
-    return d.cars.filter((c) => c.status !== 'sold').map((c) => ({ ...c, interested: d.offers.filter((o) => o.car_id === c.id && o.status !== 'rejected').length }));
+    return d.cars.filter((c) => c.status !== 'sold').map((c) => ({ ...c, interested: confirmedCount(d, c.id) }));
   },
   async getCarBySlug(slug) {
     const d = load(); const c = d.cars.find((x) => x.slug === slug); if (!c) return null;
-    return { ...c, interested: d.offers.filter((o) => o.car_id === c.id && o.status !== 'rejected').length };
+    return { ...c, interested: confirmedCount(d, c.id) };
   },
   async sendOffer(o) {
     const d = load(); const c = d.cars.find((x) => x.id === o.car_id);
-    if (!c || c.status === 'sold' || !c.offers_open || (c.offers_close_at && new Date() > new Date(c.offers_close_at))) throw new Error('Offers are closed for this car.');
-    if (d.offers.some((x) => x.car_id === o.car_id && x.phone === o.phone)) throw new Error('You have already sent an offer for this car from this number.');
-    d.offers.push({ ...o, id: uuid(), status: 'new', created_at: new Date().toISOString() }); save(d);
+    if (!c || c.status === 'sold' || !c.offers_open || (c.offers_close_at && new Date() > new Date(c.offers_close_at))) throw new Error(MSG.closed);
+    if (d.offers.some((x) => x.car_id === o.car_id && x.phone === o.phone)) throw new Error(MSG.duplicate);
+    if (d.offers.filter((x) => x.car_id === o.car_id && Date.now() - new Date(x.created_at) < 36e5).length >= 5) throw new Error(MSG.tooMany);
+    d.offers.push({ car_id: o.car_id, name: o.name, phone: o.phone, amount: o.amount, id: uuid(), status: 'new', created_at: new Date().toISOString() }); save(d);
   },
-  async session() { return sessionStorage.getItem('km-demo-login') ? { email: sessionStorage.getItem('km-demo-login') } : null; },
-  async sendCode(email) { sessionStorage.setItem('km-demo-pending', email); },
-  async verifyCode(email, code) { if (!/^\d{6}$/.test(code)) throw new Error('Enter the 6-digit code.'); sessionStorage.setItem('km-demo-login', email); },
-  async isOwner() { return !!sessionStorage.getItem('km-demo-login'); },
-  async signOut() { sessionStorage.removeItem('km-demo-login'); },
+  async session() { return SS.getItem('km-demo-login') ? { email: SS.getItem('km-demo-login') } : null; },
+  async sendCode(email) { SS.setItem('km-demo-pending', email); },
+  async verifyCode(email, code) { if (!/^\d{6}$/.test(code)) throw new Error('Enter the 6-digit code.'); SS.setItem('km-demo-login', email); },
+  async isOwner() { return !!SS.getItem('km-demo-login'); },
+  async signOut() { SS.removeItem('km-demo-login'); },
   async ownerData() { return load(); },
   async saveCar(car, costs) {
     const d = load();
-    if (car.id) { Object.assign(d.cars.find((c) => c.id === car.id), car); Object.assign(d.costs.find((c) => c.car_id === car.id), costs); }
+    if (car.id) { const old = d.cars.find((c) => c.id === car.id); if (car.price < old.price) car.prev_price = old.prev_price || old.price; else if (car.price > old.price) car.prev_price = null; Object.assign(old, car); Object.assign(d.costs.find((c) => c.car_id === car.id), costs); }
     else { car.id = uuid(); car.listed_on = iso(new Date()); car.status = 'available'; car.offers_open = car.offers_open ?? true; d.cars.unshift(car); d.costs.push({ ...costs, car_id: car.id, sold_price: null }); }
     save(d); return car.id;
   },
@@ -81,15 +96,27 @@ const demo = {
     for (const b of blobs) urls.push(await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); }));
     return urls;
   },
-  async resetDemo() { localStorage.removeItem(KEY); },
+  async resetDemo() { LS.removeItem(KEY); },
 };
 
 // ───────────────────────── LIVE (Supabase) ─────────────────────────
+// Plain-language messages for database errors, so buyers never see technical text.
+function friendly(e) {
+  const m = `${e.code || ''} ${e.message || ''}`;
+  if (m.includes('23505')) return MSG.duplicate;
+  if (m.includes('42501')) return MSG.closed;
+  if (m.includes('too_many_offers')) return MSG.tooMany;
+  if (m.includes('offers_amount_check')) return 'Please check the offer amount.';
+  if (m.includes('offers_phone_check')) return 'Enter a valid 10-digit mobile number.';
+  if (m.includes('offers_name_check')) return 'Enter your name.';
+  if (/fetch|network/i.test(m)) return 'No internet connection. Please try again.';
+  return 'Something went wrong. Please try again, or WhatsApp us.';
+}
 let sbp;
 const sb = () => (sbp ||= import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm').then(({ createClient }) =>
-  createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } })));
+  createClient(CONFIG.supabaseUrl, CONFIG.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, storage: LS } })));
 const ok = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
-const PUBLIC_COLS = 'id,slug,name,year,km,fuel,transmission,owner_no,colour,insurance_till,description,price,status,photos,offers_open,offers_close_at,listed_on,sold_on';
+const PUBLIC_COLS = 'id,slug,name,year,km,fuel,transmission,owner_no,colour,insurance_till,description,price,prev_price,status,photos,offers_open,offers_close_at,listed_on,sold_on';
 
 const live = {
   async counts(c) { const rows = ok(await c.rpc('offer_counts')) || []; return Object.fromEntries(rows.map((r) => [r.car_id, r.interested])); },
@@ -104,7 +131,7 @@ const live = {
   },
   async sendOffer(o) {
     const c = await sb(); const { error } = await c.from('offers').insert(o); // no .select(): buyers cannot read offers back
-    if (error) throw new Error(error.code === '23505' ? 'You have already sent an offer for this car from this number.' : error.code === '42501' ? 'Offers are closed for this car.' : error.message);
+    if (error) throw new Error(friendly(error));
   },
   async session() { const c = await sb(); const { data } = await c.auth.getSession(); return data.session ? { email: data.session.user.email } : null; },
   async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })); },

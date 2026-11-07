@@ -41,6 +41,7 @@ create table if not exists public.cars (
   insurance_till text,
   description text,
   price int not null check (price > 0),
+  prev_price int check (prev_price is null or prev_price > 0),   -- old price, shown struck through after a price drop
   status text not null default 'available' check (status in ('available','booked','sold')),
   photos text[] not null default '{}',
   offers_open boolean not null default true,
@@ -49,6 +50,7 @@ create table if not exists public.cars (
   sold_on date,
   created_at timestamptz not null default now()
 );
+alter table public.cars add column if not exists prev_price int check (prev_price is null or prev_price > 0);
 alter table public.cars enable row level security;
 
 drop policy if exists "anyone reads showroom" on public.cars;
@@ -122,17 +124,62 @@ create policy "owner manages offers" on public.offers
   for all to authenticated using (public.is_owner()) with check (public.is_owner());
 
 -- Public "N people interested" count, without exposing any offer details.
+-- Only offers the owner has confirmed by phone are counted, so the number cannot be faked.
 create or replace function public.offer_counts()
 returns table (car_id uuid, interested int)
 language sql stable security definer set search_path = public
 as $$
   select o.car_id, count(*)::int
   from public.offers o
-  where o.status <> 'rejected'
+  where o.status in ('confirmed', 'accepted')
   group by o.car_id;
 $$;
 revoke all on function public.offer_counts() from public;
 grant execute on function public.offer_counts() to anon, authenticated;
+
+
+-- Every new offer: the database sets the date and status itself, and limits spam.
+--   • at most 5 offers per car per hour
+--   • at most 30 offers across the whole showroom per 10 minutes
+create or replace function public.offer_guard()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  new.created_at := now();
+  if not public.is_owner() then
+    new.status := 'new';
+    if (select count(*) from public.offers where car_id = new.car_id and created_at > now() - interval '1 hour') >= 5 then
+      raise exception 'too_many_offers_car' using errcode = 'P0001';
+    end if;
+    if (select count(*) from public.offers where created_at > now() - interval '10 minutes') >= 30 then
+      raise exception 'too_many_offers_site' using errcode = 'P0001';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists offer_guard on public.offers;
+create trigger offer_guard before insert on public.offers
+  for each row execute function public.offer_guard();
+
+-- Remember the old price when the owner lowers it (for the "price dropped" badge).
+create or replace function public.price_drop()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.price < old.price then
+    new.prev_price := coalesce(old.prev_price, old.price);
+  elsif new.price > old.price then
+    new.prev_price := null;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists price_drop on public.cars;
+create trigger price_drop before update of price on public.cars
+  for each row execute function public.price_drop();
 
 -- ─────────────────────────────────────────────────────────────
 -- 5. Photo storage: anyone can view, only the owner can upload/delete

@@ -27,6 +27,7 @@ const P = {
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  trend: '<path d="m23 18-9.5-9.5-5 5L1 6"/><path d="M17 18h6v-6"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
 };
@@ -82,3 +83,34 @@ export function compressImage(file, max = 1280, quality = 0.72) {
 
 export const slugify = (name, year) =>
   `${name}-${year}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Math.random().toString(36).slice(2, 6);
+
+// In-app "Are you sure?" dialog. Resolves true (OK) or false (Cancel / Esc / tap outside).
+export function ask(title, message, okLabel = 'Yes, continue', danger = false) {
+  return new Promise((resolve) => {
+    const w = document.createElement('div');
+    w.innerHTML = `<div class="scrim"></div><div class="sheet ask" role="alertdialog" aria-modal="true" aria-labelledby="askt"><div class="grab"></div><h2 id="askt">${esc(title)}</h2><p class="askm">${esc(message)}</p>
+      <div class="btns" style="margin-top:18px"><button class="b ghost" data-v="0">Cancel</button><button class="b ${danger ? 'red' : 'pri'}" data-v="1">${esc(okLabel)}</button></div></div>`;
+    const done = (v) => { w.remove(); resolve(v); };
+    w.querySelector('.scrim').onclick = () => done(false);
+    w.querySelectorAll('[data-v]').forEach((b) => (b.onclick = () => done(b.dataset.v === '1')));
+    w._close = () => done(false);
+    document.body.appendChild(w);
+    w.querySelector('[data-v="1"]').focus();
+  });
+}
+
+// Keyboard: Esc closes the top dialog; Tab stays inside it.
+document.addEventListener('keydown', (e) => {
+  const sheets = [...document.querySelectorAll('.sheet')];
+  const top = sheets[sheets.length - 1];
+  if (!top) return;
+  if (e.key === 'Escape') { e.preventDefault(); const w = top.parentElement; if (w._close) w._close(); else w.remove(); return; }
+  if (e.key === 'Tab') {
+    const f = [...top.querySelectorAll('button,input,select,textarea,a[href]')].filter((x) => !x.disabled && x.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    else if (!top.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  }
+});

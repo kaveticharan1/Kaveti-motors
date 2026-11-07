@@ -300,3 +300,27 @@ textarea.fi{height:90px;padding:12px 14px;resize:vertical}
   body[data-area=owner] .list{padding:4px 20px}
 }
 @media (min-width:1500px){.wrap{max-width:1360px}}
+
+/* ───────── v5: badges, price drop, similar cars, dialogs, skeleton, focus ───────── */
+.tag.dr{left:auto;right:12px;background:var(--g);color:#fff}
+.tag.nw{left:auto;right:12px;background:#F5A524;color:#1F1300}
+.was{font-size:13px;color:var(--mute);font-weight:600;margin-left:4px}
+.ibox .price .was{font-size:16px}
+.dropline{display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;font-weight:700;color:var(--g);background:var(--gbg);border-radius:8px;padding:4px 9px}
+.grid.sim{margin-top:12px}
+@media (max-width:639px){.grid.sim .car{margin:0 20px 14px}}
+@media (min-width:960px){.grid.sim{grid-template-columns:repeat(3,1fr)}}
+.pg div.cover{outline:3px solid var(--p);outline-offset:-3px}
+.covtag{position:absolute;left:6px;bottom:6px;background:var(--p);color:#fff;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 6px}
+.mkcover{position:absolute;left:6px;bottom:6px;background:rgba(255,255,255,.92);color:var(--ink);font-size:10.5px;font-weight:700;border-radius:6px;padding:3px 6px;display:flex;align-items:center;gap:3px}
+.pg div .mkcover{width:auto;height:auto;top:auto;right:auto;border-radius:6px;background:rgba(255,255,255,.95);color:var(--ink);display:flex;padding:3px 7px}
+.askm{font-size:14.5px;color:var(--ink2);line-height:1.55;margin-top:10px}
+.sheet.ask .btns .b{flex:1}
+.sk{background:linear-gradient(90deg,#E9EDF3 0,#F4F6FA 50%,#E9EDF3 100%);background-size:200% 100%;animation:sh 1.2s infinite linear;border-radius:8px}
+.car .ph.sk{border-radius:0}
+.sk.l1{height:16px;width:70%}.sk.l2{height:12px;width:90%;margin-top:10px}.sk.l3{height:18px;width:40%;margin-top:14px}
+@keyframes sh{to{background-position:-200% 0}}
+.skel .car{pointer-events:none}
+:focus-visible{outline:3px solid #F5A524;outline-offset:2px;border-radius:10px}
+@media (min-width:960px){.b.pri:hover{filter:brightness(1.12)}.b.wa:hover{filter:brightness(1.08)}.b.ghost:hover{background:#ECEFF4}.chip:hover,.opt:hover{color:var(--p)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

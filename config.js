@@ -25,6 +25,12 @@ export const CONFIG = {
     'Test drive before you decide',
   ],
 
+  // Turn on after moving to Cloudflare Pages: shared car links become /car/<name> and show a photo preview in WhatsApp.
+  prettyLinks: false,
+
+  // Optional: free Cloudflare Web Analytics token (Cloudflare dashboard → Web Analytics). Leave '' to turn off.
+  cfAnalyticsToken: '',
+
   // Ageing alert limits in days: green below amberAfter, red above redAfter
   amberAfter: 30,
   redAfter: 60,

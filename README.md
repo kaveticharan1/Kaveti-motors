@@ -59,7 +59,23 @@ All protection lives in the database (Row Level Security), not in the app:
 | Logged in, not owner | Same as buyer | Same as buyer, cannot make themselves owner |
 | Owner | Everything | — |
 
-`supabase/tests/security-tests.sql` contains 22 checks (buyer, stranger and owner) that were run against PostgreSQL 16; all pass.
+Extra protection: buyers can send at most 5 offers per car per hour (30 per 10 minutes across the showroom),
+the database always sets an offer's date and status itself, and the public "people interested" count only
+includes offers the owner has confirmed by phone, so it cannot be faked.
+
+Tests (all pass on PostgreSQL 16): `supabase/tests/security-tests.sql` (24 checks) and
+`supabase/tests/negative-tests.sql` (18 checks).
+
+## Moving to Cloudflare Pages (free, business use allowed)
+1. Create a free account at https://dash.cloudflare.com → **Workers & Pages → Create → Pages → Connect to Git**.
+2. Pick this repository. Build command: *none*. Output directory: `/`.
+3. Your site is live at `https://<project>.pages.dev`. Every push to `main` updates it.
+4. In `config.js` set `prettyLinks: true`. Shared car links become `/car/<name>` and show the car's
+   photo, name and price in WhatsApp (handled by `functions/car/[slug].js`).
+5. Optional: add a Cloudflare Web Analytics token as `cfAnalyticsToken` for free, cookie-free visitor stats.
+
+## Upgrading the database
+`supabase/schema.sql` is safe to run again: it adds new columns, rules and limits without touching data.
 
 ## Updating the app
 After changing any file, bump `VERSION` in `sw.js` (e.g. `km-v2`) so installed phones load the new version.
@@ -74,6 +90,8 @@ js/store.js           data: demo mode and Supabase
 js/calc.js            cost, interest and no-loss price maths
 js/ui.js              icons, placeholder car drawings, photo compression
 sw.js, manifest.webmanifest, icons/   installable app support
+functions/car/[slug].js  WhatsApp link previews on Cloudflare Pages
+brand/                logo files (SVG for print, PNG)
 supabase/schema.sql   database tables and security rules
 supabase/tests/       security tests
 ```

@@ -13,7 +13,7 @@ select count(*) from cars;
 select count(*) from car_costs;
 \echo 'T3 read offers (expect 0 rows):'
 select count(*) from offers;
-\echo 'T4 public count (expect 1):'
+\echo 'T4 public count, unconfirmed offers are not counted (expect 0 rows):'
 select interested from offer_counts();
 \echo 'T5 send valid offer (expect INSERT 0 1):'
 insert into offers(car_id,name,phone,amount) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9000011111',780000);
@@ -21,8 +21,8 @@ insert into offers(car_id,name,phone,amount) values ('aaaaaaaa-0000-0000-0000-00
 insert into offers(car_id,name,phone,amount) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9000011111',790000);
 \echo 'T7 offer on sold car (expect RLS error):'
 insert into offers(car_id,name,phone,amount) values ('aaaaaaaa-0000-0000-0000-000000000002','X','9000022222',800000);
-\echo 'T8 fake status accepted (expect RLS error):'
-insert into offers(car_id,name,phone,amount,status) values ('aaaaaaaa-0000-0000-0000-000000000001','X','9000033333',800000,'accepted');
+\echo 'T8 fake status accepted (expect INSERT ok but status forced to new):'
+insert into offers(car_id,name,phone,amount,status) values ('aaaaaaaa-0000-0000-0000-000000000001','Xavier','9000033333',800000,'accepted');
 \echo 'T9 change price (expect UPDATE 0):'
 update cars set price=1 where true;
 \echo 'T10 delete car (expect DELETE 0):'
@@ -49,7 +49,7 @@ reset role;
 set role authenticated; set request.jwt.sub='11111111-1111-1111-1111-111111111111';
 \echo 'T18 read costs (expect 1):'
 select count(*) from car_costs;
-\echo 'T19 read offers (expect 2):'
+\echo 'T19 read offers (expect 3):'
 select count(*) from offers;
 \echo 'T20 mark confirmed (expect UPDATE 1):'
 update offers set status='confirmed' where phone='9848012345';
@@ -57,3 +57,9 @@ update offers set status='confirmed' where phone='9848012345';
 insert into storage.objects(bucket_id,name) values ('car-photos','creta/1.jpg');
 \echo 'T22 add car (expect INSERT 0 1):'
 insert into cars(slug,name,year,km,fuel,price) values ('dzire-2017','Maruti Dzire',2017,84000,'Diesel',545000);
+reset role;
+\echo 'T23 status of the fake accepted offer (expect new):'
+select status from offers where phone='9000033333';
+\echo 'T24 price drop remembered (expect 810000 then 780000):'
+update cars set price=780000 where slug='creta-2018';
+select prev_price, price from cars where slug='creta-2018';
