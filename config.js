@@ -14,8 +14,8 @@ export const CONFIG = {
   // NEVER paste the secret / service_role key here.
   // Leave both empty to run in DEMO MODE with sample cars saved on this phone only.
   // The publishable key is safe to publish: the database security rules decide what it can do.
-  supabaseUrl: '',
-  supabaseAnonKey: '',
+  supabaseUrl: 'https://uitoujxvzesnnjdnueui.supabase.co',
+  supabaseAnonKey: 'sb_publishable_722J40hxquAJgSYaSldr_A_zA7Do1GA',
 
   // Small badge at the top of the showroom. Leave '' to hide it.
   heroBadge: 'Handpicked · checked · fairly priced',

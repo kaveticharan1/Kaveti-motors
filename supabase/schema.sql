@@ -1,4 +1,4 @@
--- Kaveti Motors – database schema and security rules
+-- Vahana Motors – database schema and security rules
 -- Run this once in Supabase: Dashboard → SQL Editor → New query → paste → Run.
 -- Safe rule of thumb: buyers (anonymous visitors) can only READ the showroom
 -- and SEND offers. Everything else is for the owner only.
@@ -172,7 +172,7 @@ create trigger offer_guard before insert on public.offers
 -- Remember the old price when the owner lowers it (for the "price dropped" badge).
 create or replace function public.price_drop()
 returns trigger
-language plpgsql
+language plpgsql set search_path = public
 as $$
 begin
   if new.price < old.price then
@@ -224,6 +224,15 @@ create policy "owner changes photos" on storage.objects
 drop policy if exists "owner deletes photos" on storage.objects;
 create policy "owner deletes photos" on storage.objects
   for delete to authenticated using (bucket_id = 'car-photos' and public.is_owner());
+
+
+-- Function permissions (Supabase security advisor):
+--   offer_guard is a trigger only: nobody may call it directly.
+--   is_owner is needed by signed-in users' security rules, not by anonymous visitors.
+--   offer_counts stays public on purpose: it returns only "N people interested" per car.
+revoke all on function public.offer_guard() from public, anon, authenticated;
+revoke all on function public.is_owner() from public, anon;
+grant execute on function public.is_owner() to authenticated;
 
 -- ─────────────────────────────────────────────────────────────
 -- 6. LAST STEP (after your father has logged in once in the app):
