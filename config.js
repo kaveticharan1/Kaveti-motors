@@ -1,5 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 // Vahana Motors – settings. This is the only file you need to edit.
+// DEMO BRANCH: no database connected, so the app always runs with sample cars saved on the viewer's phone.
 // ─────────────────────────────────────────────────────────────
 export const CONFIG = {
   // Business details shown in the app
@@ -14,8 +15,8 @@ export const CONFIG = {
   // NEVER paste the secret / service_role key here.
   // Leave both empty to run in DEMO MODE with sample cars saved on this phone only.
   // The publishable key is safe to publish: the database security rules decide what it can do.
-  supabaseUrl: 'https://uitoujxvzesnnjdnueui.supabase.co',
-  supabaseAnonKey: 'sb_publishable_722J40hxquAJgSYaSldr_A_zA7Do1GA',
+  supabaseUrl: '',
+  supabaseAnonKey: '',
 
   // Small badge at the top of the showroom. Leave '' to hide it.
   heroBadge: 'Handpicked · checked · fairly priced',

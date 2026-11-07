@@ -1,4 +1,7 @@
-# Vahana Motors – Showroom App
+# Vahana Motors – Showroom App (DEMO branch)
+
+> This `demo` branch runs with sample cars only (no database). The real app is on `main`.
+> To update this branch with the latest app changes: `git checkout demo && git merge main` and keep `config.js` with empty Supabase keys.
 
 A mobile web app (installable PWA) for a second-hand car business:
 
