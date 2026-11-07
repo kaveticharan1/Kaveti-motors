@@ -185,15 +185,41 @@ function enrich(d) {
 async function login() {
   if (await store.session()) return go('#/owner');
   render(`${demoBar()}<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Owner login</h1><p>Enter your email. We will send a login code: no password to remember.</p>
-  <form id="f1"><div class="fl"><label for="em">Email</label><input class="fi" id="em" type="email" autocomplete="email" required></div><button class="b pri" id="b1">Send code</button></form>
-  <form id="f2" class="hide"><div class="fl"><label for="cd">Code from the email</label><input class="fi" id="cd" inputmode="numeric" autocomplete="one-time-code" maxlength="10" style="letter-spacing:.25em;font-size:22px;text-align:center"></div><button class="b pri" id="b2">Log in</button><p class="hint" id="sent"></p></form>
+  <form id="f1" novalidate><div class="fl"><label for="em">Email</label><input class="fi" id="em" type="email" autocomplete="email" required></div><button class="b pri" id="b1">Send code</button></form>
+  <form id="f2" class="hide" novalidate><p class="sentto" id="sent"></p><div class="fl"><label for="cd">Code from the email</label><input class="fi" id="cd" inputmode="numeric" autocomplete="one-time-code" maxlength="10" style="letter-spacing:.25em;font-size:22px;text-align:center"></div><button class="b pri" id="b2">Log in</button>
+  <div class="resend"><button type="button" class="linkbtn" id="rs" disabled>Resend code</button><span id="rst"></span></div>
+  <button type="button" class="linkbtn" id="chg" style="margin-top:6px">Use a different email</button></form>
   <div class="err" id="err"></div><div class="foot"><a href="#/">Back to showroom</a></div></div>`);
-  const $ = (id) => document.getElementById(id); let email = '';
-  $('f1').onsubmit = async (e) => { e.preventDefault(); email = $('em').value.trim(); $('b1').disabled = true; $('err').textContent = '';
-    try { await store.sendCode(email); $('f1').classList.add('hide'); $('f2').classList.remove('hide'); $('sent').textContent = LIVE ? `Code sent to ${email}. Check your inbox and spam folder.` : 'Demo mode: type any 6 to 10 digits.'; $('cd').focus(); }
-    catch (ex) { $('err').textContent = ex.message; $('b1').disabled = false; } };
-  $('f2').onsubmit = async (e) => { e.preventDefault(); $('b2').disabled = true; $('err').textContent = '';
-    try { await store.verifyCode(email, digits($('cd').value)); go('#/owner'); } catch (ex) { $('err').textContent = ex.message; $('b2').disabled = false; } };
+  const $ = (id) => document.getElementById(id); let email = '', timer;
+  // Supabase allows a new code every 60 seconds, so the Resend button counts down.
+  const cooldown = (sec = 60) => {
+    clearInterval(timer); $('rs').disabled = true; let left = sec;
+    const tick = () => { if (!$('rst')) return clearInterval(timer); $('rst').textContent = left > 0 ? ` in ${left}s` : ''; if (left-- <= 0) { clearInterval(timer); $('rs').disabled = false; } };
+    tick(); timer = setInterval(tick, 1000);
+  };
+  const send = async () => {
+    await store.sendCode(email);
+    $('sent').innerHTML = LIVE ? `We sent a code to <b>${esc(email)}</b>. Check your inbox and spam folder. The email may also have a login link: tapping it works too.` : `Demo mode: type any 6 to 10 digits. (Code "sent" to <b>${esc(email)}</b>.)`;
+    cooldown();
+  };
+  $('f1').onsubmit = async (e) => {
+    e.preventDefault(); email = $('em').value.trim(); $('err').textContent = '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('err').textContent = 'Enter a valid email.'; return; }
+    $('b1').disabled = true;
+    try { await send(); $('f1').classList.add('hide'); $('f2').classList.remove('hide'); $('cd').focus(); }
+    catch (ex) { $('err').textContent = /rate|seconds|security purposes/i.test(ex.message) ? 'Please wait a minute before asking for another code.' : ex.message; $('b1').disabled = false; }
+  };
+  $('f2').onsubmit = async (e) => {
+    e.preventDefault(); $('b2').disabled = true; $('err').textContent = '';
+    try { await store.verifyCode(email, digits($('cd').value)); clearInterval(timer); go('#/owner'); }
+    catch (ex) { $('err').textContent = ex.message; $('b2').disabled = false; $('cd').select(); }
+  };
+  $('rs').onclick = async () => {
+    $('err').textContent = ''; $('rs').disabled = true;
+    try { await send(); $('cd').value = ''; $('cd').focus(); toast('New code sent'); }
+    catch (ex) { $('err').textContent = /rate|seconds|security purposes/i.test(ex.message) ? 'Please wait a minute before asking for another code.' : ex.message; cooldown(30); }
+  };
+  $('chg').onclick = () => { clearInterval(timer); $('f2').classList.add('hide'); $('f1').classList.remove('hide'); $('b1').disabled = false; $('err').textContent = ''; $('em').focus(); };
 }
 
 async function dashboard() {
@@ -571,5 +597,14 @@ async function route() {
 { const m = location.pathname.match(/\/car\/([^/]+)\/?$/); if (m) history.replaceState(null, '', `/#/car/${m[1]}`); }
 // Optional free Cloudflare Web Analytics (no cookies). Add the token in config.js to turn it on.
 if (CONFIG.cfAnalyticsToken) { const sc = document.createElement('script'); sc.defer = true; sc.src = 'https://static.cloudflareinsights.com/beacon.min.js'; sc.dataset.cfBeacon = JSON.stringify({ token: CONFIG.cfAnalyticsToken }); document.head.appendChild(sc); }
+// Arrived from the login link in the email: let Supabase read the session, then open the owner area.
+async function authRedirect() {
+  const h = location.hash, q = location.search;
+  if (!LIVE || !(/access_token|error_description/.test(h) || /[?&]code=/.test(q))) return;
+  const err = new URLSearchParams(h.replace(/^#\/?/, '')).get('error_description');
+  try { await store.session(); } catch {}
+  history.replaceState(null, '', location.pathname + (err ? '#/owner/login' : '#/owner'));
+  if (err) setTimeout(() => toast(/expired|invalid/i.test(err) ? 'That login link has expired. Send a new code.' : err), 400);
+}
 addEventListener('hashchange', route);
-store.getSettings().then(applySettings).catch(() => {}).finally(route);
+authRedirect().then(() => store.getSettings()).then(applySettings).catch(() => {}).finally(route);

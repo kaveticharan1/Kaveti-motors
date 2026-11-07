@@ -4,7 +4,9 @@
 import { CONFIG } from '../config.js';
 import { localISO } from './calc.js';
 
-export const LIVE = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey);
+// Add ?demo to the address to try the app with sample cars, even when a database is connected.
+export const DEMO_FORCED = typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo');
+export const LIVE = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) && !DEMO_FORCED;
 
 const iso = (d) => localISO(d);
 const MSG = {
@@ -138,7 +140,7 @@ const live = {
     if (error) throw new Error(friendly(error));
   },
   async session() { const c = await sb(); const { data } = await c.auth.getSession(); return data.session ? { email: data.session.user.email } : null; },
-  async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })); },
+  async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: location.origin + location.pathname } })); },
   async verifyCode(email, token) { if (!/^\d{6,10}$/.test(token)) throw new Error('Enter the code from the email (6 to 10 digits).'); const c = await sb(); const { error } = await c.auth.verifyOtp({ email, token, type: 'email' }); if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'That code is wrong or has expired. Tap "Send code" again for a new one.' : error.message); },
   async getSettings() { const c = await sb(); return ok(await c.from('settings').select('business_name,tagline,whatsapp,phone,hero_badge,trust_points').eq('id', 1).maybeSingle()); },
   async saveSettings(v) { const c = await sb(); ok(await c.from('settings').update({ ...v, updated_at: new Date().toISOString() }).eq('id', 1)); },
