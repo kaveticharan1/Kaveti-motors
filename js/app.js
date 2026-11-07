@@ -182,6 +182,9 @@ function enrich(d) {
   });
 }
 
+// Supabase's free email sender allows only a few login emails per hour; say so plainly.
+const codeErr = (m) => /rate limit|over_email_send_rate_limit|429/i.test(m) ? 'Too many login emails were sent in the last hour (free email limit). Please try again in about an hour.'
+  : /seconds|security purposes/i.test(m) ? 'Please wait a minute before asking for another code.' : m;
 async function login() {
   if (await store.session()) return go('#/owner');
   render(`${demoBar()}<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Owner login</h1><p>Enter your email. We will send a login code: no password to remember.</p>
@@ -207,7 +210,7 @@ async function login() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('err').textContent = 'Enter a valid email.'; return; }
     $('b1').disabled = true;
     try { await send(); $('f1').classList.add('hide'); $('f2').classList.remove('hide'); $('cd').focus(); }
-    catch (ex) { $('err').textContent = /rate|seconds|security purposes/i.test(ex.message) ? 'Please wait a minute before asking for another code.' : ex.message; $('b1').disabled = false; }
+    catch (ex) { $('err').textContent = codeErr(ex.message); $('b1').disabled = false; }
   };
   $('f2').onsubmit = async (e) => {
     e.preventDefault(); $('b2').disabled = true; $('err').textContent = '';
@@ -217,7 +220,7 @@ async function login() {
   $('rs').onclick = async () => {
     $('err').textContent = ''; $('rs').disabled = true;
     try { await send(); $('cd').value = ''; $('cd').focus(); toast('New code sent'); }
-    catch (ex) { $('err').textContent = /rate|seconds|security purposes/i.test(ex.message) ? 'Please wait a minute before asking for another code.' : ex.message; cooldown(30); }
+    catch (ex) { $('err').textContent = codeErr(ex.message); cooldown(30); }
   };
   $('chg').onclick = () => { clearInterval(timer); $('f2').classList.add('hide'); $('f1').classList.remove('hide'); $('b1').disabled = false; $('err').textContent = ''; $('em').focus(); };
 }
