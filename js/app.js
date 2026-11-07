@@ -184,13 +184,13 @@ function enrich(d) {
 
 async function login() {
   if (await store.session()) return go('#/owner');
-  render(`${demoBar()}<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Owner login</h1><p>Enter your email. We will send a 6-digit code: no password to remember.</p>
+  render(`${demoBar()}<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Owner login</h1><p>Enter your email. We will send a login code: no password to remember.</p>
   <form id="f1"><div class="fl"><label for="em">Email</label><input class="fi" id="em" type="email" autocomplete="email" required></div><button class="b pri" id="b1">Send code</button></form>
-  <form id="f2" class="hide"><div class="fl"><label for="cd">6-digit code</label><input class="fi" id="cd" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="letter-spacing:.3em;font-size:22px;text-align:center"></div><button class="b pri" id="b2">Log in</button><p class="hint" id="sent"></p></form>
+  <form id="f2" class="hide"><div class="fl"><label for="cd">Code from the email</label><input class="fi" id="cd" inputmode="numeric" autocomplete="one-time-code" maxlength="10" style="letter-spacing:.25em;font-size:22px;text-align:center"></div><button class="b pri" id="b2">Log in</button><p class="hint" id="sent"></p></form>
   <div class="err" id="err"></div><div class="foot"><a href="#/">Back to showroom</a></div></div>`);
   const $ = (id) => document.getElementById(id); let email = '';
   $('f1').onsubmit = async (e) => { e.preventDefault(); email = $('em').value.trim(); $('b1').disabled = true; $('err').textContent = '';
-    try { await store.sendCode(email); $('f1').classList.add('hide'); $('f2').classList.remove('hide'); $('sent').textContent = LIVE ? `Code sent to ${email}. Check your inbox and spam folder.` : 'Demo mode: type any 6 digits.'; $('cd').focus(); }
+    try { await store.sendCode(email); $('f1').classList.add('hide'); $('f2').classList.remove('hide'); $('sent').textContent = LIVE ? `Code sent to ${email}. Check your inbox and spam folder.` : 'Demo mode: type any 6 to 10 digits.'; $('cd').focus(); }
     catch (ex) { $('err').textContent = ex.message; $('b1').disabled = false; } };
   $('f2').onsubmit = async (e) => { e.preventDefault(); $('b2').disabled = true; $('err').textContent = '';
     try { await store.verifyCode(email, digits($('cd').value)); go('#/owner'); } catch (ex) { $('err').textContent = ex.message; $('b2').disabled = false; } };

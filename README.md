@@ -25,9 +25,9 @@ Owner area: `#/owner`, any email, any 6-digit code.
 1. Create a free account at https://supabase.com and a **New project** (region: Mumbai).
 2. **SQL Editor → New query**: paste all of `supabase/schema.sql` and press **Run**.
 3. **Authentication → Sign In / Providers → Email**: keep it enabled.
-4. **Authentication → Emails → Magic Link** template: make sure the email shows the code with `{{ .Token }}` (the app logs in with the 6-digit code).
+4. **Authentication → Emails → Templates**: in both **Magic Link** and **Confirm signup**, add the code `{{ .Token }}` to the email body (the app logs in with the code, 6 to 10 digits).
 5. **Authentication → URL Configuration**: set **Site URL** to your GitHub Pages address (step 3).
-6. **Project Settings → API**: copy the **Project URL** and the **anon public** key into `config.js`.
+6. **Project Settings → API Keys**: copy the **Project URL** and the **publishable key** (`sb_publishable_...`; older projects: legacy **anon** key) into `config.js`. Never use the secret / service_role key in the app.
 
 ### 2. Business details
 Log in as the owner and open **Profile**: business name, tagline, WhatsApp and call numbers, login email, showroom badge and the promises shown on car pages. These are saved in the database (`settings` table). `config.js` only holds the defaults.

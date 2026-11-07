@@ -24,7 +24,8 @@ export async function onRequestGet({ request, env, params }) {
   if (cfg.url && cfg.key && /^[a-z0-9-]{3,120}$/.test(params.slug)) {
     try {
       const r = await fetch(`${cfg.url}/rest/v1/cars?slug=eq.${params.slug}&select=name,year,km,fuel,price,photos,status`, {
-        headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}` },
+        // New publishable keys (sb_publishable_...) go only in the apikey header; legacy anon keys are JWTs.
+        headers: { apikey: cfg.key, ...(cfg.key.startsWith('ey') ? { Authorization: `Bearer ${cfg.key}` } : {}) },
         cf: { cacheTtl: 300, cacheEverything: true },
       });
       if (r.ok) car = (await r.json())[0] || null;

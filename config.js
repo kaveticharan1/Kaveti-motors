@@ -9,9 +9,11 @@ export const CONFIG = {
   whatsapp: '919999999999',
   phone: '+919999999999',
 
-  // Supabase project (Dashboard → Project Settings → API).
+  // Supabase project (Dashboard → Project Settings → API Keys).
+  // supabaseAnonKey: paste the PUBLISHABLE key (sb_publishable_...) or, on older projects, the legacy anon key.
+  // NEVER paste the secret / service_role key here.
   // Leave both empty to run in DEMO MODE with sample cars saved on this phone only.
-  // The anon key is safe to publish: the database security rules decide what it can do.
+  // The publishable key is safe to publish: the database security rules decide what it can do.
   supabaseUrl: '',
   supabaseAnonKey: '',
 
