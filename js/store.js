@@ -10,6 +10,8 @@ export const LIVE = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) && !DE
 
 const iso = (d) => localISO(d);
 const MSG = {
+  tdTaken: 'Sorry, someone just booked that time. Please choose another slot.',
+  tdMany: 'You already have 3 upcoming test drives booked. Please call us to change one.',
   duplicate: 'You have already sent an offer for this car from this number.',
   closed: 'Offers are closed for this car.',
   tooMany: 'This car got many offers in the last hour. Please try again later, or WhatsApp us.',
@@ -39,6 +41,10 @@ function seed() {
     cars: rows.map((r) => r.car),
     costs: rows.map((r) => r.costs),
     expenses: rows.flatMap((r) => r.expenses),
+    drives: [
+      { id: uuid(), car_id: creta, name: 'Anil Reddy', phone: '9849011111', drive_date: daysAgo(-1), slot: '11:00', note: 'Will come with family', status: 'requested', created_at: new Date(Date.now() - 36e5).toISOString() },
+      { id: uuid(), car_id: rows[2].car.id, name: 'Priya S.', phone: '9849022222', drive_date: daysAgo(0), slot: '17:00', note: '', status: 'confirmed', created_at: new Date(Date.now() - 864e5).toISOString() },
+    ],
     offers: [
       { id: uuid(), car_id: creta, name: 'Ravi Kumar', phone: '9848012345', amount: 795000, status: 'confirmed', created_at: new Date(Date.now() - 864e5).toISOString() },
       { id: uuid(), car_id: creta, name: 'Suresh M.', phone: '9000011111', amount: 780000, status: 'new', created_at: new Date(Date.now() - 72e5).toISOString() },
@@ -55,7 +61,7 @@ const safe = (area) => ({
 });
 export const LS = safe('localStorage'), SS = safe('sessionStorage');
 const KEY = 'km-demo-v1';
-const load = () => { try { const d = JSON.parse(LS.getItem(KEY)); if (d && d.cars) return d; } catch {} const s = seed(); save(s); return s; };
+const load = () => { try { const d = JSON.parse(LS.getItem(KEY)); if (d && d.cars) { d.drives = d.drives || []; return d; } } catch {} const s = seed(); save(s); return s; };
 const save = (d) => { try { LS.setItem(KEY, JSON.stringify(d)); } catch (e) { throw new Error('Phone storage is full. Remove some demo photos.'); } };
 const confirmedCount = (d, id) => d.offers.filter((o) => o.car_id === id && (o.status === 'confirmed' || o.status === 'accepted')).length;
 
@@ -100,7 +106,16 @@ const demo = {
   },
   async resetDemo() { LS.removeItem(KEY); LS.removeItem('km-settings'); },
   async getSettings() { try { return JSON.parse(LS.getItem('km-settings')) || null; } catch { return null; } },
-  async saveSettings(v) { LS.setItem('km-settings', JSON.stringify(v)); },
+  async takenSlots(carId) { const t = localISO(); return load().drives.filter((x) => x.car_id === carId && ['requested', 'confirmed'].includes(x.status) && x.drive_date >= t).map((x) => ({ drive_date: x.drive_date, slot: x.slot })); },
+  async requestDrive(o) {
+    const d = load(), c = d.cars.find((x) => x.id === o.car_id), t = localISO();
+    if (!c || c.status === 'sold') throw new Error(MSG.closed);
+    if (d.drives.some((x) => x.car_id === o.car_id && x.drive_date === o.drive_date && x.slot === o.slot && ['requested', 'confirmed'].includes(x.status))) throw new Error(MSG.tdTaken);
+    if (d.drives.filter((x) => x.phone === o.phone && ['requested', 'confirmed'].includes(x.status) && x.drive_date >= t).length >= 3) throw new Error(MSG.tdMany);
+    d.drives.push({ car_id: o.car_id, name: o.name, phone: o.phone, drive_date: o.drive_date, slot: o.slot, note: o.note || '', id: uuid(), status: 'requested', created_at: new Date().toISOString() }); save(d);
+  },
+  async setDriveStatus(id, status) { const d = load(); d.drives.find((x) => x.id === id).status = status; save(d); },
+  async saveSettings(v) { let old = {}; try { old = JSON.parse(LS.getItem('km-settings')) || {}; } catch {} LS.setItem('km-settings', JSON.stringify({ ...old, ...v })); },
   async changeEmail(email) { SS.setItem('km-demo-login', email); return 'changed'; },
   async identify(images) { return identifyCall(images, null); },
 };
@@ -109,9 +124,15 @@ const demo = {
 // Plain-language messages for database errors, so buyers never see technical text.
 function friendly(e) {
   const m = `${e.code || ''} ${e.message || ''}`;
+  if (m.includes('test_drives_slot_taken')) return MSG.tdTaken;
   if (m.includes('23505')) return MSG.duplicate;
   if (m.includes('42501')) return MSG.closed;
   if (m.includes('too_many_offers')) return MSG.tooMany;
+  if (m.includes('test_drives_slot_taken')) return MSG.tdTaken;
+  if (m.includes('td_too_many_phone')) return MSG.tdMany;
+  if (m.includes('td_bad_date')) return 'Please choose a date in the next few days.';
+  if (m.includes('td_bad_slot') || m.includes('td_slot_passed')) return 'That time is not available any more. Please choose another slot.';
+  if (m.includes('td_too_many_site')) return 'Many requests right now. Please try again in a few minutes, or call us.';
   if (m.includes('offers_amount_check')) return 'Please check the offer amount.';
   if (m.includes('offers_phone_check')) return 'Enter a valid 10-digit mobile number.';
   if (m.includes('offers_name_check')) return 'Enter your name.';
@@ -142,7 +163,15 @@ const live = {
   async session() { const c = await sb(); const { data } = await c.auth.getSession(); return data.session ? { email: data.session.user.email } : null; },
   async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: location.origin + location.pathname } })); },
   async verifyCode(email, token) { if (!/^\d{6,10}$/.test(token)) throw new Error('Enter the code from the email (6 to 10 digits).'); const c = await sb(); const { error } = await c.auth.verifyOtp({ email, token, type: 'email' }); if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'That code is wrong or has expired. Tap "Send code" again for a new one.' : error.message); },
-  async getSettings() { const c = await sb(); return ok(await c.from('settings').select('business_name,tagline,whatsapp,phone,hero_badge,trust_points').eq('id', 1).maybeSingle()); },
+  async getSettings() {
+    const c = await sb(), base = 'business_name,tagline,whatsapp,phone,hero_badge,trust_points';
+    const r = await c.from('settings').select(base + ',td_slots,td_days_ahead').eq('id', 1).maybeSingle();
+    // Older database without the test drive columns: still load the rest.
+    return r.error ? ok(await c.from('settings').select(base).eq('id', 1).maybeSingle()) : r.data;
+  },
+  async takenSlots(carId) { const c = await sb(); return ok(await c.rpc('taken_slots', { p_car: carId })) || []; },
+  async requestDrive(o) { const c = await sb(); const { error } = await c.from('test_drives').insert(o); if (error) throw new Error(friendly(error)); },
+  async setDriveStatus(id, status) { const c = await sb(); ok(await c.from('test_drives').update({ status }).eq('id', id)); },
   async saveSettings(v) { const c = await sb(); ok(await c.from('settings').update({ ...v, updated_at: new Date().toISOString() }).eq('id', 1)); },
   async changeEmail(email) { const c = await sb(); ok(await c.auth.updateUser({ email })); return 'confirm'; },
   async identify(images) { const c = await sb(); const { data } = await c.auth.getSession(); return identifyCall(images, data.session?.access_token); },
@@ -150,10 +179,11 @@ const live = {
   async signOut() { const c = await sb(); await c.auth.signOut(); },
   async ownerData() {
     const c = await sb();
-    const [cars, costs, expenses, offers] = await Promise.all([
+    const [cars, costs, expenses, offers, drives] = await Promise.all([
       c.from('cars').select('*').order('listed_on', { ascending: false }), c.from('car_costs').select('*'),
-      c.from('expenses').select('*').order('spent_on'), c.from('offers').select('*').order('amount', { ascending: false })]);
-    return { cars: ok(cars), costs: ok(costs), expenses: ok(expenses), offers: ok(offers) };
+      c.from('expenses').select('*').order('spent_on'), c.from('offers').select('*').order('amount', { ascending: false }),
+      c.from('test_drives').select('*').order('drive_date').order('slot')]);
+    return { cars: ok(cars), costs: ok(costs), expenses: ok(expenses), offers: ok(offers), drives: drives.error ? [] : drives.data };
   },
   async saveCar(car, costs) {
     const c = await sb();

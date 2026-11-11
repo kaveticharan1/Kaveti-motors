@@ -82,3 +82,42 @@ update settings set whatsapp='9848012345', updated_at=now() where id=1;
 \echo 'T30 owner saves invalid number (expect check error):'
 update settings set whatsapp='12345' where id=1;
 reset role;
+\echo '--- TEST DRIVES ---'
+set request.jwt.sub = '';   -- a buyer is not logged in
+set role anon;
+\echo 'T31 buyer requests a test drive tomorrow 10:00 (expect INSERT 0 1):'
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Ravi','9848012345',(now() at time zone 'Asia/Kolkata')::date+1,'10:00');
+\echo 'T32 same slot again by someone else (expect unique error):'
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9848012346',(now() at time zone 'Asia/Kolkata')::date+1,'10:00');
+\echo 'T33 slot not offered 03:00 (expect td_bad_slot):'
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9848012346',(now() at time zone 'Asia/Kolkata')::date+1,'03:00');
+\echo 'T34 date in the past (expect td_bad_date):'
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9848012346',(now() at time zone 'Asia/Kolkata')::date-1,'11:00');
+\echo 'T35 date 60 days ahead (expect td_bad_date):'
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9848012346',(now() at time zone 'Asia/Kolkata')::date+60,'11:00');
+\echo 'T36 buyer forges status confirmed (expect INSERT ok, forced to requested):'
+insert into test_drives(car_id,name,phone,drive_date,slot,status) values ('aaaaaaaa-0000-0000-0000-000000000001','Kiran','9848012347',(now() at time zone 'Asia/Kolkata')::date+2,'11:00','confirmed');
+\echo 'T37 buyer reads bookings (expect 0):'
+select count(*) from test_drives;
+\echo 'T38 buyer sees taken slots, no names (expect 2 rows):'
+select * from taken_slots('aaaaaaaa-0000-0000-0000-000000000001');
+\echo 'T39 buyer cancels a booking (expect UPDATE 0):'
+update test_drives set status='cancelled' where true;
+\echo 'T40 4th active booking from one phone (expect td_too_many_phone on the 4th):'
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Ravi','9848012345',(now() at time zone 'Asia/Kolkata')::date+3,'11:00');
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Ravi','9848012345',(now() at time zone 'Asia/Kolkata')::date+3,'12:00');
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Ravi','9848012345',(now() at time zone 'Asia/Kolkata')::date+3,'15:00');
+reset role;
+\echo 'T41 forged status stored as (expect requested):'
+select status from test_drives where phone='9848012347';
+set role authenticated; set request.jwt.sub='11111111-1111-1111-1111-111111111111';
+\echo 'T42 owner reads bookings (expect 4):'
+select count(*) from test_drives;
+\echo 'T43 owner cancels tomorrow 10:00 (expect UPDATE 1):'
+update test_drives set status='cancelled' where slot='10:00';
+reset role;
+set request.jwt.sub = '';
+set role anon;
+\echo 'T44 cancelled slot can be booked again (expect INSERT 0 1):'
+insert into test_drives(car_id,name,phone,drive_date,slot) values ('aaaaaaaa-0000-0000-0000-000000000001','Suresh','9848012346',(now() at time zone 'Asia/Kolkata')::date+1,'10:00');
+reset role;

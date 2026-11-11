@@ -208,6 +208,90 @@ create policy "anyone reads settings" on public.settings for select to anon, aut
 drop policy if exists "owner updates settings" on public.settings;
 create policy "owner updates settings" on public.settings for update to authenticated using (public.is_owner()) with check (public.is_owner());
 
+
+-- ─────────────────────────────────────────────────────────────
+-- 4c. Test drives: buyers REQUEST a slot, only the owner sees and manages bookings
+-- ─────────────────────────────────────────────────────────────
+alter table public.settings add column if not exists td_slots text[] not null default '{10:00,11:00,12:00,15:00,16:00,17:00}'
+  check (cardinality(td_slots) between 1 and 12);
+alter table public.settings add column if not exists td_days_ahead int not null default 7 check (td_days_ahead between 1 and 30);
+
+create table if not exists public.test_drives (
+  id uuid primary key default gen_random_uuid(),
+  car_id uuid not null references public.cars (id) on delete cascade,
+  name text not null check (char_length(name) between 2 and 60),
+  phone text not null check (phone ~ '^[6-9][0-9]{9}$'),
+  drive_date date not null,
+  slot text not null check (slot ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  note text check (note is null or char_length(note) <= 200),
+  status text not null default 'requested' check (status in ('requested','confirmed','done','cancelled','no_show')),
+  created_at timestamptz not null default now()
+);
+-- One active booking per car per slot (a cancelled booking frees the slot again).
+create unique index if not exists test_drives_slot_taken on public.test_drives (car_id, drive_date, slot)
+  where status in ('requested', 'confirmed');
+alter table public.test_drives enable row level security;
+
+drop policy if exists "buyers request test drives" on public.test_drives;
+create policy "buyers request test drives" on public.test_drives
+  for insert to anon, authenticated
+  with check (
+    status = 'requested'
+    and exists (select 1 from public.cars c where c.id = car_id and c.status <> 'sold')
+  );
+drop policy if exists "owner manages test drives" on public.test_drives;
+create policy "owner manages test drives" on public.test_drives
+  for all to authenticated using (public.is_owner()) with check (public.is_owner());
+
+-- Every new request: the database checks the date and slot, sets the status and limits spam.
+create or replace function public.test_drive_guard()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare s public.settings;
+begin
+  new.created_at := now();
+  if public.is_owner() then return new; end if;
+  select * into s from public.settings where id = 1;
+  new.status := 'requested';
+  if new.drive_date < (now() at time zone 'Asia/Kolkata')::date
+     or new.drive_date > (now() at time zone 'Asia/Kolkata')::date + s.td_days_ahead then
+    raise exception 'td_bad_date' using errcode = 'P0001';
+  end if;
+  if not (new.slot = any (s.td_slots)) then
+    raise exception 'td_bad_slot' using errcode = 'P0001';
+  end if;
+  if new.drive_date = (now() at time zone 'Asia/Kolkata')::date
+     and new.slot::time <= (now() at time zone 'Asia/Kolkata')::time then
+    raise exception 'td_slot_passed' using errcode = 'P0001';
+  end if;
+  if (select count(*) from public.test_drives where phone = new.phone and status in ('requested','confirmed')
+        and drive_date >= (now() at time zone 'Asia/Kolkata')::date) >= 3 then
+    raise exception 'td_too_many_phone' using errcode = 'P0001';
+  end if;
+  if (select count(*) from public.test_drives where created_at > now() - interval '10 minutes') >= 20 then
+    raise exception 'td_too_many_site' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists test_drive_guard on public.test_drives;
+create trigger test_drive_guard before insert on public.test_drives
+  for each row execute function public.test_drive_guard();
+revoke all on function public.test_drive_guard() from public, anon, authenticated;
+
+-- Which slots are already taken for a car (dates and times only, never who booked).
+create or replace function public.taken_slots(p_car uuid)
+returns table (drive_date date, slot text)
+language sql stable security definer set search_path = public
+as $$
+  select t.drive_date, t.slot from public.test_drives t
+  where t.car_id = p_car and t.status in ('requested','confirmed')
+    and t.drive_date >= (now() at time zone 'Asia/Kolkata')::date;
+$$;
+revoke all on function public.taken_slots(uuid) from public;
+grant execute on function public.taken_slots(uuid) to anon, authenticated;
+
 -- ─────────────────────────────────────────────────────────────
 -- 5. Photo storage: anyone can view, only the owner can upload/delete
 -- ─────────────────────────────────────────────────────────────
