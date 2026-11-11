@@ -1,0 +1,62 @@
+# Builds the Vahana Motors Android app (APK) on GitHub's free servers.
+# Every push to main makes a fresh APK and puts it on the "Android app" release page.
+name: Android app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install
+        run: npm ci
+
+      - name: Copy the web app into the Android project
+        run: |
+          node scripts/build-www.mjs
+          npx cap sync android
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon -PvmVersionCode=${{ github.run_number }}
+          cp app/build/outputs/apk/debug/app-debug.apk ../vahana-motors.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vahana-motors-apk
+          path: vahana-motors.apk
+
+      - name: Publish to the "Android app" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Latest Vahana Motors Android app (build ${{ github.run_number }}). On your Android phone: download vahana-motors.apk, open it, and allow 'Install unknown apps' if asked."
+          gh release view android-app >/dev/null 2>&1 || gh release create android-app --title "Vahana Motors Android app" --notes "$NOTES" --latest
+          gh release edit android-app --notes "$NOTES"
+          gh release upload android-app vahana-motors.apk --clobber

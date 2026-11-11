@@ -1,0 +1,24 @@
+{
+  "name": "vahana-motors",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vahana Motors – used car showroom app (web + Android)",
+  "scripts": {
+    "www": "node scripts/build-www.mjs",
+    "sync": "node scripts/build-www.mjs && npx cap sync android",
+    "assets": "npx @capacitor/assets generate --android --iconBackgroundColor '#7A1424' --splashBackgroundColor '#7A1424'"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/filesystem": "^8.0.0",
+    "@capacitor/haptics": "^8.0.0",
+    "@capacitor/share": "^8.0.0",
+    "@capacitor/splash-screen": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
+  }
+}

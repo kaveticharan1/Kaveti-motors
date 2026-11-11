@@ -28,6 +28,8 @@ export const CONFIG = {
   ],
 
   // Turn on after moving to Cloudflare Pages: shared car links become /car/<name> and show a photo preview in WhatsApp.
+  // Public website address. The Android app uses it for share links and login emails.
+  siteUrl: 'https://kaveticharan1.github.io/Vahana-Motors/',
   prettyLinks: false,
 
   // Optional: free Cloudflare Web Analytics token (Cloudflare dashboard → Web Analytics). Leave '' to turn off.

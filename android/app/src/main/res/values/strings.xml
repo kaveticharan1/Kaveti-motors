@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vahana Motors</string>
+    <string name="title_activity_main">Vahana Motors</string>
+    <string name="package_name">com.vahanamotors.app</string>
+    <string name="custom_url_scheme">com.vahanamotors.app</string>
+</resources>

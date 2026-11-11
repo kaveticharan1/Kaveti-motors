@@ -2,13 +2,14 @@ import { CONFIG } from '../config.js';
 import { store, LIVE, LS } from './store.js';
 import { costSheet, inr, lakh, kmFmt, localISO } from './calc.js';
 import { ic, esc, photo, toast, compressImage, slugify, ask } from './ui.js';
+import { NATIVE, siteBase, saveFile, initNative, tap } from './native.js';
 import { BRANDS, COLOURS, MONTHS, findBrand, findModel, splitName } from './cars-data.js';
 
 const $app = document.getElementById('app');
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const num = (s) => Number(digits(s) || 0);
 // Share links: /car/<slug> on Cloudflare (gives WhatsApp a photo preview), #/car/<slug> elsewhere.
-const carUrl = (slug) => (CONFIG.prettyLinks ? `${location.origin}/car/${slug}` : `${location.origin}${location.pathname}#/car/${slug}`);
+const carUrl = (slug) => (CONFIG.prettyLinks && !NATIVE ? `${location.origin}/car/${slug}` : `${siteBase()}#/car/${slug}`);
 const isNew = (c) => c.listed_on && (Date.now() - new Date(c.listed_on + 'T00:00:00')) / 864e5 <= 7;
 const dropped = (c) => c.prev_price && c.prev_price > c.price;
 const ownerLabel = (n) => ['1st', '2nd', '3rd'][n - 1] || `${n}th`;
@@ -42,7 +43,7 @@ const heartBtn = (slug, cls = 'heart') => `<button class="${cls}${isFav(slug) ? 
 function bindHearts(root = document) {
   root.querySelectorAll('[data-fav]').forEach((b) => b.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
-    const on = toggleFav(b.dataset.fav);
+    const on = toggleFav(b.dataset.fav); tap();
     document.querySelectorAll(`[data-fav="${CSS.escape(b.dataset.fav)}"]`).forEach((x) => { x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
     const n = document.getElementById('favn'); if (n) { const c = favs().length; n.textContent = c || ''; n.classList.toggle('hide', !c && !myDrives().length); }
     toast(on ? 'Saved. Find it under Saved at the top.' : 'Removed from saved');
@@ -743,9 +744,9 @@ async function profile() {
       const cars = enrich(data).map((c) => [c.name, c.year, c.km, c.fuel, c.status, c.price, c.costs?.buy_price, c.cs.spent, Math.round(c.cs.interest), Math.round(c.cs.total), c.costs?.sold_price ?? '', c.costs?.bought_on, c.sold_on ?? '', c.offers.length]);
       const offers = enrich(data).flatMap((c) => c.offers.map((o) => [c.name, o.name, o.phone, o.amount, o.status, o.created_at]));
       const csv = [['Car', 'Year', 'KM', 'Fuel', 'Status', 'Asking price', 'Bought for', 'Expenses', 'Interest', 'Total cost', 'Sold for', 'Bought on', 'Sold on', 'Offers'], ...cars, [], ['OFFERS'], ['Car', 'Buyer', 'Phone', 'Amount', 'Status', 'Received'], ...offers, [], ['TEST DRIVES'], ['Car', 'Buyer', 'Phone', 'Date', 'Time', 'Status', 'Note'], ...(data.drives || []).map((x) => [enrich(data).find((c) => c.id === x.car_id)?.name || '', x.name, x.phone, x.drive_date, String(x.slot).slice(0, 5), x.status, x.note || ''])].map((r) => r.map(q).join(',')).join('\n');
-      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = `vahana-motors-backup-${localISO()}.csv`; a.click();
+      saveFile(`vahana-motors-backup-${localISO()}.csv`, '﻿' + csv).then((r) => { if (r === 'saved') toast('Backup saved in Documents'); }).catch(fail);
     };
-    $('link').onclick = async () => { const url = `${location.origin}${location.pathname}#/`; try { if (navigator.share) await navigator.share({ title: CONFIG.businessName, url }); else { await navigator.clipboard.writeText(url); toast('Showroom link copied'); } } catch {} };
+    $('link').onclick = async () => { const url = `${siteBase()}#/`; try { if (navigator.share) await navigator.share({ title: CONFIG.businessName, url }); else { await navigator.clipboard.writeText(url); toast('Showroom link copied'); } } catch {} };
     $('reset')?.addEventListener('click', async () => { if (await ask('Reset demo?', 'All demo cars, offers and profile changes go back to the sample data.', 'Reset', true)) { await store.resetDemo(); location.reload(); } });
     $('out').onclick = async () => { await store.signOut(); go('#/'); };
   };
@@ -795,4 +796,5 @@ async function authRedirect() {
   if (err) setTimeout(() => toast(/expired|invalid/i.test(err) ? 'That login link has expired. Send a new code.' : err), 400);
 }
 addEventListener('hashchange', route);
+initNative();
 authRedirect().then(() => store.getSettings()).then(applySettings).catch(() => {}).finally(route);

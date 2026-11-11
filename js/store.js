@@ -2,6 +2,7 @@
 //  • demo: sample data saved in this browser only (when config has no Supabase keys)
 //  • live: Supabase database, login and photo storage
 import { CONFIG } from '../config.js';
+import { siteBase } from './native.js';
 import { localISO } from './calc.js';
 
 // Add ?demo to the address to try the app with sample cars, even when a database is connected.
@@ -161,7 +162,7 @@ const live = {
     if (error) throw new Error(friendly(error));
   },
   async session() { const c = await sb(); const { data } = await c.auth.getSession(); return data.session ? { email: data.session.user.email } : null; },
-  async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: location.origin + location.pathname } })); },
+  async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: siteBase() } })); },
   async verifyCode(email, token) { if (!/^\d{6,10}$/.test(token)) throw new Error('Enter the code from the email (6 to 10 digits).'); const c = await sb(); const { error } = await c.auth.verifyOtp({ email, token, type: 'email' }); if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'That code is wrong or has expired. Tap "Send code" again for a new one.' : error.message); },
   async getSettings() {
     const c = await sb(), base = 'business_name,tagline,whatsapp,phone,hero_badge,trust_points';
