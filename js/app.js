@@ -356,7 +356,8 @@ function enrich(d) {
 }
 
 // Supabase's free email sender allows only a few login emails per hour; say so plainly.
-const codeErr = (m) => /rate limit|over_email_send_rate_limit|429/i.test(m) ? 'Too many login emails were sent in the last hour (free email limit). Please try again in about an hour.'
+const codeErr = (m) => /signups? not allowed|otp_disabled|user not found/i.test(m) ? 'This email is not an owner login. Use the owner email, or ask Charan to add this email as an owner.'
+  : /rate limit|over_email_send_rate_limit|429/i.test(m) ? 'Too many login emails were sent in the last hour (free email limit). Please try again in about an hour.'
   : /seconds|security purposes/i.test(m) ? 'Please wait a minute before asking for another code.' : m;
 async function login() {
   if (await store.session()) return go('#/owner');
@@ -375,7 +376,7 @@ async function login() {
   };
   const send = async () => {
     await store.sendCode(email);
-    $('sent').innerHTML = LIVE ? `We sent a code to <b>${esc(email)}</b>. Check your inbox and spam folder. The email may also have a login link: tapping it works too.` : `Demo mode: type any 6 to 10 digits. (Code "sent" to <b>${esc(email)}</b>.)`;
+    $('sent').innerHTML = LIVE ? `We sent a code to <b>${esc(email)}</b>. Check your inbox and spam folder, then type the code here.${NATIVE ? '' : ' Tapping the link in the email also works.'}` : `Demo mode: type any 6 to 10 digits. (Code "sent" to <b>${esc(email)}</b>.)`;
     cooldown();
   };
   $('f1').onsubmit = async (e) => {
