@@ -11,6 +11,9 @@ export const LIVE = Boolean(CONFIG.supabaseUrl && CONFIG.supabaseAnonKey) && !DE
 
 const iso = (d) => localISO(d);
 const MSG = {
+  adminOnly: 'Only an admin can do this.',
+  inTeam: 'This email is already in the team.',
+  lastAdmin: 'Keep at least one admin. Make someone else an admin first.',
   tdTaken: 'Sorry, someone just booked that time. Please choose another slot.',
   tdMany: 'You already have 3 upcoming test drives booked. Please call us to change one.',
   duplicate: 'You have already sent an offer for this car from this number.',
@@ -64,6 +67,19 @@ export const LS = safe('localStorage'), SS = safe('sessionStorage');
 const KEY = 'km-demo-v1';
 const load = () => { try { const d = JSON.parse(LS.getItem(KEY)); if (d && d.cars) { d.drives = d.drives || []; return d; } } catch {} const s = seed(); save(s); return s; };
 const save = (d) => { try { LS.setItem(KEY, JSON.stringify(d)); } catch (e) { throw new Error('Phone storage is full. Remove some demo photos.'); } };
+// Demo team: emails listed here get that role. Any other email logs in as admin,
+// except emails with "buyer" or "customer" in them, which log in as a customer.
+const TEAM_KEY = 'km-team';
+const seedTeam = () => [
+  { email: 'owner@vahana.demo', name: 'Owner', role: 'admin', added_by: 'setup', created_at: new Date(Date.now() - 30 * 864e5).toISOString() },
+  { email: 'sales@vahana.demo', name: 'Ravi', role: 'sales', added_by: 'owner@vahana.demo', created_at: new Date(Date.now() - 9 * 864e5).toISOString() },
+  { email: 'staff@vahana.demo', name: 'Suresh', role: 'staff', added_by: 'owner@vahana.demo', created_at: new Date(Date.now() - 3 * 864e5).toISOString() },
+];
+const teamList = () => { try { const t = JSON.parse(LS.getItem(TEAM_KEY)); if (Array.isArray(t)) return t; } catch {} const t = seedTeam(); LS.setItem(TEAM_KEY, JSON.stringify(t)); return t; };
+const saveTeam = (t) => LS.setItem(TEAM_KEY, JSON.stringify(t));
+const demoMe = () => (SS.getItem('km-demo-login') || '').toLowerCase();
+const demoRole = () => { const e = demoMe(); if (!e) return null; const m = teamList().find((x) => x.email === e); return m ? m.role : /buyer|customer/.test(e) ? null : 'admin'; };
+const lastAdmin = (t, email) => t.filter((x) => x.role === 'admin').length <= 1 && t.find((x) => x.email === email)?.role === 'admin';
 const confirmedCount = (d, id) => d.offers.filter((o) => o.car_id === id && (o.status === 'confirmed' || o.status === 'accepted')).length;
 
 const demo = {
@@ -80,22 +96,42 @@ const demo = {
     if (!c || c.status === 'sold' || !c.offers_open || (c.offers_close_at && new Date() > new Date(c.offers_close_at))) throw new Error(MSG.closed);
     if (d.offers.some((x) => x.car_id === o.car_id && x.phone === o.phone)) throw new Error(MSG.duplicate);
     if (d.offers.filter((x) => x.car_id === o.car_id && Date.now() - new Date(x.created_at) < 36e5).length >= 5) throw new Error(MSG.tooMany);
-    d.offers.push({ car_id: o.car_id, name: o.name, phone: o.phone, amount: o.amount, id: uuid(), status: 'new', created_at: new Date().toISOString() }); save(d);
+    d.offers.push({ car_id: o.car_id, name: o.name, phone: o.phone, amount: o.amount, id: uuid(), status: 'new', created_at: new Date().toISOString(), user: demoMe() || null }); save(d);
   },
   async session() { return SS.getItem('km-demo-login') ? { email: SS.getItem('km-demo-login') } : null; },
   async sendCode(email) { SS.setItem('km-demo-pending', email); },
   async verifyCode(email, code) { if (!/^\d{6,10}$/.test(code)) throw new Error('Enter the code from the email (6 to 10 digits).'); SS.setItem('km-demo-login', email); },
-  async isOwner() { return !!SS.getItem('km-demo-login'); },
+  async isOwner() { return demoRole() === 'admin'; },
+  async myRole() { return demoRole(); },
+  async listTeam() { return demoRole() === 'admin' ? teamList() : teamList().filter((x) => x.email === demoMe()); },
+  async addMember(m) {
+    if (demoRole() !== 'admin') throw new Error(MSG.adminOnly);
+    const t = teamList(), email = m.email.trim().toLowerCase();
+    if (t.some((x) => x.email === email)) throw new Error(MSG.inTeam);
+    t.push({ email, name: m.name || '', role: m.role, added_by: demoMe(), created_at: new Date().toISOString() }); saveTeam(t);
+  },
+  async updateMember(email, patch) { const t = teamList(); if (patch.role && patch.role !== 'admin' && lastAdmin(t, email)) throw new Error(MSG.lastAdmin); Object.assign(t.find((x) => x.email === email), patch); saveTeam(t); },
+  async removeMember(email) { const t = teamList(); if (lastAdmin(t, email)) throw new Error(MSG.lastAdmin); saveTeam(t.filter((x) => x.email !== email)); },
+  async getMe() { try { return JSON.parse(LS.getItem('km-demo-me-' + demoMe())) || {}; } catch { return {}; } },
+  async saveMe(v) { LS.setItem('km-demo-me-' + demoMe(), JSON.stringify(v)); },
+  async myActivity() {
+    const d = load(), e = demoMe(), car = (id) => d.cars.find((c) => c.id === id);
+    return { offers: d.offers.filter((o) => e && o.user === e).map((o) => ({ ...o, car: car(o.car_id) })), drives: d.drives.filter((x) => e && x.user === e).map((x) => ({ ...x, car: car(x.car_id) })) };
+  },
   async signOut() { SS.removeItem('km-demo-login'); },
-  async ownerData() { return load(); },
+  async ownerData() {
+    // Same limits as the live database: only the admin sees money, staff do not see offers.
+    const d = load(), r = demoRole();
+    return { ...d, costs: r === 'admin' ? d.costs : [], expenses: r === 'admin' ? d.expenses : [], offers: r === 'admin' || r === 'sales' ? d.offers : [] };
+  },
   async saveCar(car, costs) {
     const d = load();
-    if (car.id) { const old = d.cars.find((c) => c.id === car.id); if (car.price < old.price) car.prev_price = old.prev_price || old.price; else if (car.price > old.price) car.prev_price = null; Object.assign(old, car); Object.assign(d.costs.find((c) => c.car_id === car.id), costs); }
-    else { car.id = uuid(); car.listed_on = iso(new Date()); car.status = 'available'; car.offers_open = car.offers_open ?? true; d.cars.unshift(car); d.costs.push({ ...costs, car_id: car.id, sold_price: null }); }
+    if (car.id) { const old = d.cars.find((c) => c.id === car.id); if (car.price < old.price) car.prev_price = old.prev_price || old.price; else if (car.price > old.price) car.prev_price = null; Object.assign(old, car); if (costs) { const cc = d.costs.find((c) => c.car_id === car.id); if (cc) Object.assign(cc, costs); else d.costs.push({ ...costs, car_id: car.id, sold_price: null }); } }
+    else { car.id = uuid(); car.listed_on = iso(new Date()); car.status = 'available'; car.offers_open = car.offers_open ?? true; d.cars.unshift(car); if (costs) d.costs.push({ ...costs, car_id: car.id, sold_price: null }); }
     save(d); return car.id;
   },
   async updateCar(id, patch) { const d = load(); Object.assign(d.cars.find((c) => c.id === id), patch); save(d); },
-  async markSold(id, price) { const d = load(); Object.assign(d.cars.find((c) => c.id === id), { status: 'sold', sold_on: iso(new Date()) }); d.costs.find((c) => c.car_id === id).sold_price = price; save(d); },
+  async markSold(id, price) { const d = load(); Object.assign(d.cars.find((c) => c.id === id), { status: 'sold', sold_on: iso(new Date()) }); const cc = d.costs.find((c) => c.car_id === id); if (cc) cc.sold_price = price; else d.costs.push({ car_id: id, buy_price: 0, loan_amount: 0, interest_rate: 0, bought_on: iso(new Date()), sold_price: price }); save(d); },
   async deleteCar(id) { const d = load(); for (const k of ['cars']) d[k] = d[k].filter((c) => c.id !== id); for (const k of ['costs', 'expenses', 'offers']) d[k] = d[k].filter((c) => c.car_id !== id); save(d); },
   async addExpense(car_id, label, amount) { const d = load(); d.expenses.push({ id: uuid(), car_id, label, amount, spent_on: iso(new Date()) }); save(d); },
   async deleteExpense(id) { const d = load(); d.expenses = d.expenses.filter((e) => e.id !== id); save(d); },
@@ -105,7 +141,7 @@ const demo = {
     for (const b of blobs) urls.push(await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); }));
     return urls;
   },
-  async resetDemo() { LS.removeItem(KEY); LS.removeItem('km-settings'); },
+  async resetDemo() { LS.removeItem(KEY); LS.removeItem('km-settings'); LS.removeItem(TEAM_KEY); },
   async getSettings() { try { return JSON.parse(LS.getItem('km-settings')) || null; } catch { return null; } },
   async takenSlots(carId) { const t = localISO(); return load().drives.filter((x) => x.car_id === carId && ['requested', 'confirmed'].includes(x.status) && x.drive_date >= t).map((x) => ({ drive_date: x.drive_date, slot: x.slot })); },
   async requestDrive(o) {
@@ -113,7 +149,7 @@ const demo = {
     if (!c || c.status === 'sold') throw new Error(MSG.closed);
     if (d.drives.some((x) => x.car_id === o.car_id && x.drive_date === o.drive_date && x.slot === o.slot && ['requested', 'confirmed'].includes(x.status))) throw new Error(MSG.tdTaken);
     if (d.drives.filter((x) => x.phone === o.phone && ['requested', 'confirmed'].includes(x.status) && x.drive_date >= t).length >= 3) throw new Error(MSG.tdMany);
-    d.drives.push({ car_id: o.car_id, name: o.name, phone: o.phone, drive_date: o.drive_date, slot: o.slot, note: o.note || '', id: uuid(), status: 'requested', created_at: new Date().toISOString() }); save(d);
+    d.drives.push({ car_id: o.car_id, name: o.name, phone: o.phone, drive_date: o.drive_date, slot: o.slot, note: o.note || '', id: uuid(), status: 'requested', created_at: new Date().toISOString(), user: demoMe() || null }); save(d);
   },
   async setDriveStatus(id, status) { const d = load(); d.drives.find((x) => x.id === id).status = status; save(d); },
   async saveSettings(v) { let old = {}; try { old = JSON.parse(LS.getItem('km-settings')) || {}; } catch {} LS.setItem('km-settings', JSON.stringify({ ...old, ...v })); },
@@ -126,6 +162,10 @@ const demo = {
 function friendly(e) {
   const m = `${e.code || ''} ${e.message || ''}`;
   if (m.includes('test_drives_slot_taken')) return MSG.tdTaken;
+  if (m.includes('team_pkey')) return MSG.inTeam;
+  if (m.includes('last_admin')) return MSG.lastAdmin;
+  if (m.includes('admin_only')) return MSG.adminOnly;
+  if (m.includes('team_email_check')) return 'Enter a valid email.';
   if (m.includes('23505')) return MSG.duplicate;
   if (m.includes('42501')) return MSG.closed;
   if (m.includes('too_many_offers')) return MSG.tooMany;
@@ -161,8 +201,8 @@ const live = {
     const c = await sb(); const { error } = await c.from('offers').insert(o); // no .select(): buyers cannot read offers back
     if (error) throw new Error(friendly(error));
   },
-  async session() { const c = await sb(); const { data } = await c.auth.getSession(); return data.session ? { email: data.session.user.email } : null; },
-  async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: siteBase() } })); },
+  async session() { const c = await sb(); const { data } = await c.auth.getSession(); return data.session ? { email: data.session.user.email, id: data.session.user.id } : null; },
+  async sendCode(email) { const c = await sb(); ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: siteBase() } })); },
   async verifyCode(email, token) { if (!/^\d{6,10}$/.test(token)) throw new Error('Enter the code from the email (6 to 10 digits).'); const c = await sb(); const { error } = await c.auth.verifyOtp({ email, token, type: 'email' }); if (error) throw new Error(/expired|invalid/i.test(error.message) ? 'That code is wrong or has expired. Tap "Send code" again for a new one.' : error.message); },
   async getSettings() {
     const c = await sb(), base = 'business_name,tagline,whatsapp,phone,hero_badge,trust_points';
@@ -176,7 +216,22 @@ const live = {
   async saveSettings(v) { const c = await sb(); ok(await c.from('settings').update({ ...v, updated_at: new Date().toISOString() }).eq('id', 1)); },
   async changeEmail(email) { const c = await sb(); ok(await c.auth.updateUser({ email })); return 'confirm'; },
   async identify(images) { const c = await sb(); const { data } = await c.auth.getSession(); return identifyCall(images, data.session?.access_token); },
-  async isOwner() { const c = await sb(); const rows = ok(await c.from('owners').select('user_id').limit(1)); return rows.length > 0; },
+  async myRole() { const c = await sb(); const { data, error } = await c.rpc('my_role'); if (error) throw new Error(friendly(error)); return data || null; },
+  async isOwner() { return (await this.myRole()) === 'admin'; },
+  async listTeam() { const c = await sb(); return ok(await c.from('team').select('*').order('created_at')); },
+  async addMember(m) { const c = await sb(); const { error } = await c.from('team').insert({ email: m.email.trim().toLowerCase(), name: m.name || '', role: m.role }); if (error) throw new Error(friendly(error)); },
+  async updateMember(email, patch) { const c = await sb(); const { error } = await c.from('team').update(patch).eq('email', email); if (error) throw new Error(friendly(error)); },
+  async removeMember(email) { const c = await sb(); const { error } = await c.from('team').delete().eq('email', email); if (error) throw new Error(friendly(error)); },
+  async getMe() { const c = await sb(); const { data } = await c.auth.getUser(); return data.user?.user_metadata || {}; },
+  async saveMe(v) { const c = await sb(); ok(await c.auth.updateUser({ data: v })); },
+  async myActivity() {
+    const c = await sb(), { data: u } = await c.auth.getUser(), id = u.user?.id; if (!id) return { offers: [], drives: [] };
+    const [o, t] = await Promise.all([c.from('offers').select('id,car_id,amount,status,created_at').eq('user_id', id).order('created_at', { ascending: false }),
+      c.from('test_drives').select('id,car_id,drive_date,slot,status,created_at').eq('user_id', id).order('drive_date', { ascending: false })]);
+    const offers = o.error ? [] : o.data, drives = t.error ? [] : t.data, ids = [...new Set([...offers, ...drives].map((x) => x.car_id))];
+    const cars = ids.length ? ok(await c.from('cars').select(PUBLIC_COLS).in('id', ids)) : [], car = (cid) => cars.find((x) => x.id === cid);
+    return { offers: offers.map((x) => ({ ...x, car: car(x.car_id) })), drives: drives.map((x) => ({ ...x, car: car(x.car_id) })) };
+  },
   async signOut() { const c = await sb(); await c.auth.signOut(); },
   async ownerData() {
     const c = await sb();
@@ -188,11 +243,11 @@ const live = {
   },
   async saveCar(car, costs) {
     const c = await sb();
-    if (car.id) { const { id, ...rest } = car; ok(await c.from('cars').update(rest).eq('id', id)); ok(await c.from('car_costs').upsert({ ...costs, car_id: id })); return id; }
+    if (car.id) { const { id, ...rest } = car; const r = await c.from('cars').update(rest).eq('id', id); if (r.error) throw new Error(friendly(r.error)); if (costs) ok(await c.from('car_costs').upsert({ ...costs, car_id: id })); return id; }
     const row = ok(await c.from('cars').insert(car).select('id').single());
-    ok(await c.from('car_costs').insert({ ...costs, car_id: row.id })); return row.id;
+    if (costs) ok(await c.from('car_costs').insert({ ...costs, car_id: row.id })); return row.id;
   },
-  async updateCar(id, patch) { const c = await sb(); ok(await c.from('cars').update(patch).eq('id', id)); },
+  async updateCar(id, patch) { const c = await sb(); const r = await c.from('cars').update(patch).eq('id', id); if (r.error) throw new Error(friendly(r.error)); },
   async markSold(id, price) { const c = await sb(); ok(await c.from('cars').update({ status: 'sold', sold_on: iso(new Date()) }).eq('id', id)); ok(await c.from('car_costs').update({ sold_price: price }).eq('car_id', id)); },
   async deleteCar(id) { const c = await sb(); ok(await c.from('cars').delete().eq('id', id)); },
   async addExpense(car_id, label, amount) { const c = await sb(); ok(await c.from('expenses').insert({ car_id, label, amount })); },

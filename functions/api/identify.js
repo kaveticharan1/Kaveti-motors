@@ -17,14 +17,13 @@ async function readConfig(env, origin) {
   return { url: get('supabaseUrl'), key: get('supabaseAnonKey') };
 }
 
-// True only for a logged-in user listed in the owners table.
+// True only for a logged-in team member (admin, sales or staff).
 async function isOwner(cfg, token) {
   if (!cfg.url || !cfg.key || !token) return false;
-  const h = { apikey: cfg.key, Authorization: `Bearer ${token}` };
-  const u = await fetch(`${cfg.url}/auth/v1/user`, { headers: h });
-  if (!u.ok) return false;
-  const o = await fetch(`${cfg.url}/rest/v1/owners?select=user_id&limit=1`, { headers: h });
-  return o.ok && (await o.json()).length > 0;
+  const h = { apikey: cfg.key, Authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  const r = await fetch(`${cfg.url}/rest/v1/rpc/my_role`, { method: 'POST', headers: h, body: '{}' });
+  if (!r.ok) return false;
+  return ['admin', 'sales', 'staff'].includes(await r.json());
 }
 
 const PROMPT = `You are helping a used-car dealer in India list a car. Look at the photo and identify the car.

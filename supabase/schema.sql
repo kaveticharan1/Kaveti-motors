@@ -310,6 +310,209 @@ create policy "owner deletes photos" on storage.objects
   for delete to authenticated using (bucket_id = 'car-photos' and public.is_owner());
 
 
+-- ─────────────────────────────────────────────────────────────
+-- 4d. Team roles and customer accounts
+--   Admin  : everything (costs, profit, settings, team, delete)
+--   Sales  : cars (no costs), offers, test drives
+--   Staff  : cars (no costs), test drives
+--   Anyone else who logs in is a customer: they see only their own offers and test drives.
+--   A role is given by EMAIL, so the admin can add someone before they ever log in.
+--   The email must be verified (login code), so nobody can claim a team email.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.team (
+  email text primary key check (email = lower(email) and email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'),
+  name text not null default '' check (char_length(name) <= 60),
+  role text not null check (role in ('admin','sales','staff')),
+  added_by text,
+  created_at timestamptz not null default now()
+);
+alter table public.team enable row level security;
+
+-- Earlier owners become admins.
+insert into public.team (email, role, added_by)
+select lower(u.email), 'admin', 'setup' from public.owners o join auth.users u on u.id = o.user_id
+where u.email is not null
+on conflict (email) do nothing;
+
+create or replace function public.my_role()
+returns text
+language sql stable security definer set search_path = public
+as $$
+  select t.role from public.team t
+  join auth.users u on lower(u.email) = t.email
+  where u.id = auth.uid() and u.email_confirmed_at is not null
+  limit 1;
+$$;
+create or replace function public.is_owner()
+returns boolean
+language sql stable security definer set search_path = public
+as $$ select coalesce(public.my_role() = 'admin', false); $$;
+create or replace function public.my_email()
+returns text
+language sql stable security definer set search_path = public
+as $$ select lower(u.email) from auth.users u where u.id = auth.uid() and u.email_confirmed_at is not null; $$;
+create or replace function public.is_team()
+returns boolean
+language sql stable security definer set search_path = public
+as $$ select public.my_role() is not null; $$;
+create or replace function public.can_see_offers()
+returns boolean
+language sql stable security definer set search_path = public
+as $$ select coalesce(public.my_role() in ('admin','sales'), false); $$;
+revoke all on function public.my_role() from public, anon;
+revoke all on function public.is_owner() from public, anon;
+revoke all on function public.is_team() from public, anon;
+revoke all on function public.can_see_offers() from public, anon;
+revoke all on function public.my_email() from public, anon;
+grant execute on function public.my_role(), public.my_email(), public.is_owner(), public.is_team(), public.can_see_offers() to authenticated;
+
+-- Team list: the admin manages it; everyone can read their own row.
+drop policy if exists "team reads" on public.team;
+create policy "team reads" on public.team for select to authenticated
+  using (public.is_owner() or email = public.my_email());
+drop policy if exists "admin manages team" on public.team;
+create policy "admin manages team" on public.team for all to authenticated
+  using (public.is_owner()) with check (public.is_owner());
+
+-- Never leave the business without an admin.
+create or replace function public.team_guard()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.email := lower(trim(new.email));
+    new.created_at := now();
+    new.added_by := (select u.email from auth.users u where u.id = auth.uid());
+    return new;
+  end if;
+  if old.role = 'admin' and (tg_op = 'DELETE' or new.role <> 'admin')
+     and (select count(*) from public.team where role = 'admin') <= 1 then
+    raise exception 'last_admin' using errcode = 'P0001';
+  end if;
+  if tg_op = 'UPDATE' then new.email := old.email; return new; end if;
+  return old;
+end;
+$$;
+drop trigger if exists team_guard on public.team;
+create trigger team_guard before insert or update or delete on public.team
+  for each row execute function public.team_guard();
+revoke all on function public.team_guard() from public, anon, authenticated;
+
+-- Cars: the whole team adds and edits listings; only the admin deletes or marks sold.
+drop policy if exists "owner writes cars" on public.cars;
+drop policy if exists "team adds cars" on public.cars;
+create policy "team adds cars" on public.cars for insert to authenticated with check (public.is_team());
+drop policy if exists "team edits cars" on public.cars;
+create policy "team edits cars" on public.cars for update to authenticated using (public.is_team()) with check (public.is_team());
+drop policy if exists "admin deletes cars" on public.cars;
+create policy "admin deletes cars" on public.cars for delete to authenticated using (public.is_owner());
+
+create or replace function public.car_role_guard()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_owner() and (new.status = 'sold') is distinct from (old.status = 'sold') then
+    raise exception 'admin_only' using errcode = 'P0001';
+  end if;
+  if not public.is_owner() then new.sold_on := old.sold_on; end if;
+  return new;
+end;
+$$;
+drop trigger if exists car_role_guard on public.cars;
+create trigger car_role_guard before update on public.cars
+  for each row execute function public.car_role_guard();
+revoke all on function public.car_role_guard() from public, anon, authenticated;
+
+-- Offers and test drives remember which customer account sent them (if logged in).
+alter table public.offers add column if not exists user_id uuid references auth.users (id) on delete set null;
+alter table public.test_drives add column if not exists user_id uuid references auth.users (id) on delete set null;
+
+drop policy if exists "owner manages offers" on public.offers;
+drop policy if exists "sales manages offers" on public.offers;
+create policy "sales manages offers" on public.offers for all to authenticated
+  using (public.can_see_offers()) with check (public.can_see_offers());
+drop policy if exists "customer reads own offers" on public.offers;
+create policy "customer reads own offers" on public.offers for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists "owner manages test drives" on public.test_drives;
+drop policy if exists "team manages test drives" on public.test_drives;
+create policy "team manages test drives" on public.test_drives for all to authenticated
+  using (public.is_team()) with check (public.is_team());
+drop policy if exists "customer reads own test drives" on public.test_drives;
+create policy "customer reads own test drives" on public.test_drives for select to authenticated using (user_id = auth.uid());
+
+-- The guards stamp the customer's account and let the team skip the spam limits.
+create or replace function public.offer_guard()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  new.created_at := now();
+  new.user_id := auth.uid();
+  if not public.can_see_offers() then
+    new.status := 'new';
+    if (select count(*) from public.offers where car_id = new.car_id and created_at > now() - interval '1 hour') >= 5 then
+      raise exception 'too_many_offers_car' using errcode = 'P0001';
+    end if;
+    if (select count(*) from public.offers where created_at > now() - interval '10 minutes') >= 30 then
+      raise exception 'too_many_offers_site' using errcode = 'P0001';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.offer_guard() from public, anon, authenticated;
+
+create or replace function public.test_drive_guard()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare s public.settings;
+begin
+  new.created_at := now();
+  new.user_id := auth.uid();
+  if public.is_team() then return new; end if;
+  select * into s from public.settings where id = 1;
+  new.status := 'requested';
+  if new.drive_date < (now() at time zone 'Asia/Kolkata')::date
+     or new.drive_date > (now() at time zone 'Asia/Kolkata')::date + s.td_days_ahead then
+    raise exception 'td_bad_date' using errcode = 'P0001';
+  end if;
+  if not (new.slot = any (s.td_slots)) then
+    raise exception 'td_bad_slot' using errcode = 'P0001';
+  end if;
+  if new.drive_date = (now() at time zone 'Asia/Kolkata')::date
+     and new.slot::time <= (now() at time zone 'Asia/Kolkata')::time then
+    raise exception 'td_slot_passed' using errcode = 'P0001';
+  end if;
+  if (select count(*) from public.test_drives where phone = new.phone and status in ('requested','confirmed')
+        and drive_date >= (now() at time zone 'Asia/Kolkata')::date) >= 3 then
+    raise exception 'td_too_many_phone' using errcode = 'P0001';
+  end if;
+  if (select count(*) from public.test_drives where created_at > now() - interval '10 minutes') >= 20 then
+    raise exception 'td_too_many_site' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.test_drive_guard() from public, anon, authenticated;
+
+-- Photos: the whole team uploads.
+drop policy if exists "owner uploads photos" on storage.objects;
+drop policy if exists "team uploads photos" on storage.objects;
+create policy "team uploads photos" on storage.objects
+  for insert to authenticated with check (bucket_id = 'car-photos' and public.is_team());
+drop policy if exists "owner changes photos" on storage.objects;
+drop policy if exists "team changes photos" on storage.objects;
+create policy "team changes photos" on storage.objects
+  for update to authenticated using (bucket_id = 'car-photos' and public.is_team());
+drop policy if exists "owner deletes photos" on storage.objects;
+drop policy if exists "team deletes photos" on storage.objects;
+create policy "team deletes photos" on storage.objects
+  for delete to authenticated using (bucket_id = 'car-photos' and public.is_team());
+
 -- Function permissions (Supabase security advisor):
 --   offer_guard is a trigger only: nobody may call it directly.
 --   is_owner is needed by signed-in users' security rules, not by anonymous visitors.
@@ -319,9 +522,6 @@ revoke all on function public.is_owner() from public, anon;
 grant execute on function public.is_owner() to authenticated;
 
 -- ─────────────────────────────────────────────────────────────
--- 6. LAST STEP (after your father has logged in once in the app):
---    make his account the owner. Replace the email and run:
---
---    insert into public.owners (user_id)
---    select id from auth.users where email = 'father@example.com';
+-- 6. FIRST ADMIN: add the owner's email once (afterwards, add people from the app's Team page):
+--    insert into public.team (email, name, role) values ('owner@example.com', 'Owner', 'admin');
 -- ─────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 \set VERBOSITY terse
 insert into auth.users(id,email) values ('11111111-1111-1111-1111-111111111111','father@x.com');
 insert into public.owners values ('11111111-1111-1111-1111-111111111111');
+insert into public.team (email, role) values ('father@x.com', 'admin');
 insert into cars(id,slug,name,year,km,fuel,price) values ('aaaaaaaa-0000-0000-0000-000000000001','creta','Hyundai Creta',2018,68400,'Diesel',810000);
 insert into cars(id,slug,name,year,km,fuel,price,offers_open) values ('aaaaaaaa-0000-0000-0000-000000000003','closed','Closed car',2018,1,'Diesel',500000,false);
 insert into cars(id,slug,name,year,km,fuel,price,offers_close_at) values ('aaaaaaaa-0000-0000-0000-000000000004','expired','Expired car',2018,1,'Diesel',500000,now()-interval '1 hour');

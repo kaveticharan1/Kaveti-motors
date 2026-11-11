@@ -63,9 +63,10 @@ const topBar = (withSearch) => `<header class="top"><div class="wrap topin">
   <a class="brandl" href="#/">${logoImg()}<div><b>${esc(CONFIG.businessName)}</b><small>${esc(CONFIG.tagline)}</small></div></a>
   ${withSearch ? `<label class="search">${ic('search')}<input id="q" type="search" placeholder="Search Creta, Innova, Swift…" value="${esc(ui.q)}" autocomplete="off" aria-label="Search cars"></label>` : '<span class="grow"></span>'}
   <a class="topsv" href="#/saved" aria-label="Saved cars and test drives">${ic('heart')}<span>Saved</span><i id="favn" class="${favs().length + myDrives().length ? '' : 'hide'}">${favs().length || ''}</i></a>
+  <a class="topsv topac" href="#/account" aria-label="My account">${ic('user')}<span>Account</span></a>
   <a class="topwa" href="${waLink()}" target="_blank" rel="noopener" aria-label="WhatsApp us">${ic('chat')}<span>WhatsApp us</span></a></div></header>`;
 const siteFoot = () => `<footer class="sfoot"><div class="wrap"><div class="fl1">${logoImg()}<div><b>${esc(CONFIG.businessName)}</b><small>${esc(CONFIG.tagline)}</small></div></div>
-  <div class="fl2"><a href="${waLink()}" target="_blank" rel="noopener">${ic('chat', 'sm')}WhatsApp</a><a href="tel:${esc(CONFIG.phone)}">${ic('phone', 'sm')}${esc(CONFIG.phone)}</a><a href="#/owner">${ic('lock', 'sm')}Owner login</a></div></div></footer>`;
+  <div class="fl2"><a href="${waLink()}" target="_blank" rel="noopener">${ic('chat', 'sm')}WhatsApp</a><a href="tel:${esc(CONFIG.phone)}">${ic('phone', 'sm')}${esc(CONFIG.phone)}</a><a href="#/account">${ic('user', 'sm')}Log in / My account</a></div></div></footer>`;
 
 async function showroom() {
   const cars = await store.listCars();
@@ -281,6 +282,7 @@ function offerSheet(c) {
   <div class="err" id="err"></div><button class="b pri" style="margin-top:14px" id="send">Send offer</button></form>`;
   document.body.appendChild(wrap);
   const $ = (id) => wrap.querySelector('#' + id);
+  const prev = jget('vm-me')[0]; if (prev) { $('nm').value = prev.name || ''; $('ph').value = prev.phone || ''; }
   $('amt').focus();
   const fmt = () => { const v = num($('amt').value); $('amt').value = v ? '₹' + v.toLocaleString('en-IN') : ''; };
   $('amt').addEventListener('input', fmt);
@@ -294,6 +296,7 @@ function offerSheet(c) {
     $('send').disabled = true; $('send').textContent = 'Sending…';
     try {
       await store.sendOffer({ car_id: c.id, name, phone, amount });
+      jset('vm-me', [{ name, phone }]);
       wrap.querySelector('form').innerHTML = `<div class="grab"></div><div style="text-align:center;padding:16px 0 4px"><div class="round" style="margin:0 auto;width:60px;height:60px;background:var(--gbg);color:var(--g)">${ic('check')}</div><h2 style="margin-top:14px">Offer sent</h2><p class="desc" style="margin:8px 0 0">We received your offer of <b>${inr(amount)}</b>. You will get a call on ${phone.slice(0, 5)} ${phone.slice(5)} soon.</p><button type="button" class="b ghost" style="margin-top:18px" id="done">Done</button></div>`;
       wrap.querySelector('#done').addEventListener('click', () => { wrap.remove(); route(); });
     } catch (ex) { $('err').textContent = ex.message; $('send').disabled = false; $('send').textContent = 'Send offer'; }
@@ -301,23 +304,24 @@ function offerSheet(c) {
 }
 
 // ═════════════════════════ OWNER ═════════════════════════
-async function guard() {
+// Who is logged in to the business area: 'admin', 'sales' or 'staff' (null = customer).
+let ROLE = null;
+const ADMIN = () => ROLE === 'admin';
+async function guard(roles = ['admin', 'sales', 'staff']) {
   const s = await store.session();
-  if (!s) { go('#/owner/login'); return false; }
-  if (!(await store.isOwner())) {
-    render(`<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Almost there</h1><p>You are logged in as <b>${esc(s.email)}</b>, but this account is not set as the owner yet. Run the last step of the setup guide (make this email the owner), then reopen the app.</p><button class="b ghost" id="out">Log out</button></div>`);
-    document.getElementById('out').onclick = async () => { await store.signOut(); go('#/'); };
-    return false;
-  }
+  if (!s) { go('#/login'); return false; }
+  ROLE = await store.myRole();
+  if (!ROLE) { go('#/account'); return false; }
+  if (!roles.includes(ROLE)) { toast('Only an admin can open that page.'); go('#/owner'); return false; }
   return true;
 }
 // Badge on the Leads tab = new offers + test drives waiting for a call.
 const leadCount = (d) => (d.offers || []).filter((o) => o.status === 'new').length + (d.drives || []).filter((x) => x.status === 'requested' && x.drive_date >= localISO()).length;
 function nav(active, newLeads) {
   const t = (k, h, i, l, extra = '') => `<a href="${h}" class="${active === k ? 'on' : ''}">${ic(i)}${l}${extra}</a>`;
-  return `<nav class="nav">${t('home', '#/owner', 'home', 'Home')}${t('stock', '#/owner/stock', 'car', 'Stock')}<a href="#/owner/add" aria-label="Add car"><span class="add">${ic('plus')}</span></a>${t('offers', '#/owner/offers', 'tag', 'Leads', newLeads ? `<span class="nb">${newLeads}</span>` : '')}${t('more', '#/owner/profile', 'user', 'Profile')}</nav>`;
+  return `<nav class="nav">${t('home', '#/owner', 'home', 'Home')}${t('stock', '#/owner/stock', 'car', 'Stock')}<a href="#/owner/add" aria-label="Add car"><span class="add">${ic('plus')}</span></a>${t('offers', ROLE === 'staff' ? '#/owner/drives' : '#/owner/offers', 'tag', 'Leads', newLeads ? `<span class="nb">${newLeads}</span>` : '')}${t('more', '#/owner/profile', 'user', 'Profile')}</nav>`;
 }
-const leadTabs = (on) => `<div class="fl" style="margin-top:12px"><div class="seg"><a href="#/owner/offers" class="${on === 'offers' ? 'on' : ''}">Offers</a><a href="#/owner/drives" class="${on === 'drives' ? 'on' : ''}">Test drives</a></div></div>`;
+const leadTabs = (on) => ROLE === 'staff' ? '' : `<div class="fl" style="margin-top:12px"><div class="seg"><a href="#/owner/offers" class="${on === 'offers' ? 'on' : ''}">Offers</a><a href="#/owner/drives" class="${on === 'drives' ? 'on' : ''}">Test drives</a></div></div>`;
 
 async function drivesPage() {
   if (!(await guard())) return;
@@ -360,8 +364,11 @@ const codeErr = (m) => /signups? not allowed|otp_disabled|user not found/i.test(
   : /rate limit|over_email_send_rate_limit|429/i.test(m) ? 'Too many login emails were sent in the last hour (free email limit). Please try again in about an hour.'
   : /seconds|security purposes/i.test(m) ? 'Please wait a minute before asking for another code.' : m;
 async function login() {
-  if (await store.session()) return go('#/owner');
-  render(`${demoBar()}<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Owner login</h1><p>Enter your email. We will send a login code: no password to remember.</p>
+  const afterLogin = async () => { ROLE = await store.myRole().catch(() => null); go(ROLE ? '#/owner' : '#/account'); };
+  if (await store.session()) return afterLogin();
+  render(`${demoBar()}<div class="login"><img class="mark" src="icons/logo.svg" alt="${esc(CONFIG.businessName)} logo"><h1>Log in</h1><p>Enter your email and we will send you a login code. No password to remember.</p>
+  <div class="lwhy"><span>${ic('heart', 'sm')}Track your offers and test drives</span><span>${ic('users', 'sm')}${esc(CONFIG.businessName)} team: use your work email</span></div>
+  ${LIVE ? '' : '<p class="hint dhint">Demo: any email opens the admin area. Try <b>sales@vahana.demo</b> or <b>staff@vahana.demo</b> for team roles, or an email with <b>buyer</b> in it for a customer account.</p>'}
   <form id="f1" novalidate><div class="fl"><label for="em">Email</label><input class="fi" id="em" type="email" autocomplete="email" required></div><button class="b pri" id="b1">Send code</button></form>
   <form id="f2" class="hide" novalidate><p class="sentto" id="sent"></p><div class="fl"><label for="cd">Code from the email</label><input class="fi" id="cd" inputmode="numeric" autocomplete="one-time-code" maxlength="10" style="letter-spacing:.25em;font-size:22px;text-align:center"></div><button class="b pri" id="b2">Log in</button>
   <div class="resend"><button type="button" class="linkbtn" id="rs" disabled>Resend code</button><span id="rst"></span></div>
@@ -388,7 +395,7 @@ async function login() {
   };
   $('f2').onsubmit = async (e) => {
     e.preventDefault(); $('b2').disabled = true; $('err').textContent = '';
-    try { await store.verifyCode(email, digits($('cd').value)); clearInterval(timer); go('#/owner'); }
+    try { await store.verifyCode(email, digits($('cd').value)); clearInterval(timer); await afterLogin(); }
     catch (ex) { $('err').textContent = ex.message; $('b2').disabled = false; $('cd').select(); }
   };
   $('rs').onclick = async () => {
@@ -401,6 +408,7 @@ async function login() {
 
 async function dashboard() {
   if (!(await guard())) return;
+  if (!ADMIN()) { const raw0 = await store.ownerData(); return teamHome(enrich(raw0), raw0); }
   const all = enrich(await store.ownerData()), stock = all.filter((c) => c.status !== 'sold').sort((a, b) => b.cs.days - a.cs.days);
   const locked = stock.reduce((a, c) => a + c.cs.total, 0), perDay = stock.reduce((a, c) => a + c.cs.perDay, 0);
   const raw = await store.ownerData(), newOffers = all.flatMap((c) => c.offers).filter((o) => o.status === 'new').length;
@@ -418,7 +426,7 @@ async function dashboard() {
   <div class="list">${stock.length ? stock.map(row).join('') : '<div class="empty">No cars yet. Tap + to add your first car.</div>'}</div>${nav('home', newOffers + tdAsk)}`);
 }
 const nice = (d) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '');
-const row = (c) => `<a class="it" href="#/owner/car/${c.id}"><div class="th">${photo(c, c.photos[0])}</div><div class="m"><b>${esc(c.name)}</b><small>${c.status === 'sold' ? `Sold ${nice(c.sold_on)}` : `Cost so far ${inr(c.cs.total)}`}</small></div>${c.status === 'sold' ? '<span class="pill n">Sold</span>' : `<span class="pill ${c.cs.age}">${c.cs.days} days</span>`}</a>`;
+const row = (c) => `<a class="it" href="#/owner/car/${c.id}"><div class="th">${photo(c, c.photos[0])}</div><div class="m"><b>${esc(c.name)}</b><small>${c.status === 'sold' ? `Sold ${nice(c.sold_on)}` : ADMIN() ? `Cost so far ${inr(c.cs.total)}` : `${lakh(c.price)}${c.status === 'booked' ? ' · Booked' : ''}`}</small></div>${c.status === 'sold' ? '<span class="pill n">Sold</span>' : `<span class="pill ${c.cs.age}">${c.cs.days} days</span>`}</a>`;
 
 async function stockPage() {
   if (!(await guard())) return;
@@ -435,8 +443,9 @@ async function stockPage() {
 
 async function costPage(id) {
   if (!(await guard())) return;
-  const all = enrich(await store.ownerData()), c = all.find((x) => x.id === id);
+  const raw = await store.ownerData(), all = enrich(raw), c = all.find((x) => x.id === id);
   if (!c) return go('#/owner');
+  if (!ADMIN()) return carManage(c, raw);
   const s = c.cs, max = CONFIG.redAfter * 1.5, pos = Math.min(100, (s.days / max) * 100);
   const a1 = (CONFIG.amberAfter / max) * 100, a2 = (CONFIG.redAfter / max) * 100;
   const live = c.offers.filter((o) => o.status !== 'rejected').length;
@@ -477,7 +486,7 @@ function soldSheet(c) {
 }
 
 async function offersPage(id) {
-  if (!(await guard())) return;
+  if (!(await guard(['admin', 'sales']))) return;
   const raw = await store.ownerData(), all = enrich(raw), newCount = leadCount(raw);
   if (!id) {
     const withOffers = all.filter((c) => c.offers.length).sort((a, b) => b.offers.filter((o) => o.status === 'new').length - a.offers.filter((o) => o.status === 'new').length);
@@ -489,13 +498,13 @@ async function offersPage(id) {
   const offers = [...c.offers].sort((a, b) => (a.status === 'rejected') - (b.status === 'rejected') || b.amount - a.amount);
   const tl = c.offers_close_at && left(c.offers_close_at);
   render(`${demoBar()}<div class="topbar"><a class="round" href="#/owner/offers">${ic('back')}</a><b>Offers</b></div>
-  <a class="ocar" href="#/owner/car/${c.id}"><div class="th">${photo(c, c.photos[0])}</div><div><b>${esc(c.name)}</b><small>Asking ${lakh(c.price)} · No-loss price ${inr(c.cs.total)}</small></div></a>
+  <a class="ocar" href="#/owner/car/${c.id}"><div class="th">${photo(c, c.photos[0])}</div><div><b>${esc(c.name)}</b><small>Asking ${lakh(c.price)}${ADMIN() ? ` · No-loss price ${inr(c.cs.total)}` : ''}</small></div></a>
   <div class="timer">${ic('clock', 'sm')}${!c.offers_open ? 'Offers are closed for this car' : tl ? `Offers close in ${tl}` : c.offers_close_at ? 'Offer deadline has passed' : 'Offers open, no deadline'}</div>
   ${offers.length ? offers.map((o, i) => {
     const pf = o.amount - c.cs.total, best = i === 0 && o.status !== 'rejected';
     const main = o.status === 'new' ? `<button data-s="confirmed" data-id="${o.id}">${ic('check', 'sm')}Called</button>` : o.status === 'confirmed' ? `<button data-s="accepted" data-id="${o.id}" style="background:var(--g);color:#fff">${ic('check', 'sm')}Accept</button>` : o.status === 'accepted' ? `<span style="background:var(--gbg);color:var(--g)">Accepted</span>` : `<button data-s="new" data-id="${o.id}">Restore</button>`;
     return `<div class="off ${best ? 'best' : ''} ${o.status === 'rejected' ? 'dim' : ''}">${best ? '<span class="ribbon">BEST OFFER</span>' : ''}<div class="top"><div class="who"><div class="ava">${esc(initials(o.name))}</div><div><b>${esc(o.name)}</b><small>${o.status === 'new' ? 'Not called yet' : o.status === 'confirmed' ? 'Called · confirmed' : o.status === 'accepted' ? 'Accepted' : 'Rejected'} · ${ago(o.created_at)}</small></div></div>
-    <div class="amt2"><b>${inr(o.amount)}</b><small style="color:${pf >= 0 ? 'var(--g)' : 'var(--r)'}">${pf >= 0 ? 'Profit ' : 'Loss '}${inr(Math.abs(pf))}</small></div></div>
+    <div class="amt2"><b>${inr(o.amount)}</b>${ADMIN() ? `<small style="color:${pf >= 0 ? 'var(--g)' : 'var(--r)'}">${pf >= 0 ? 'Profit ' : 'Loss '}${inr(Math.abs(pf))}</small>` : `<small style="color:var(--ink2)">${Math.round((o.amount / c.price) * 100)}% of asking</small>`}</div></div>
     <div class="acts">${main}<a href="tel:+91${esc(o.phone)}">${ic('phone', 'sm')}Call</a><a href="https://wa.me/91${esc(o.phone)}" target="_blank" rel="noopener">${ic('chat', 'sm')}WhatsApp</a></div>
     ${o.status !== 'rejected' && o.status !== 'accepted' ? `<button class="hint" data-s="rejected" data-id="${o.id}" style="margin-top:10px;color:var(--r);font-weight:600">Reject this offer</button>` : ''}</div>`; }).join('') : '<div class="empty">No offers yet for this car.</div>'}
   ${nav('offers', newCount)}`);
@@ -531,6 +540,7 @@ async function carForm(id) {
   };
   const aiSet = new Set();
   let step = 1;
+  const LAST = ADMIN() ? 3 : 1; // Sales and Staff never see buying cost or loan.
   const opt = (v, l, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(l)}</option>`;
   const seg = (k, opts) => `<div class="seg" data-k="${k}">${opts.map((o) => `<button type="button" data-v="${o}" class="${String(f[k]) === String(o) ? 'on' : ''}">${o}</button>`).join('')}</div>`;
   const ai = (k) => (aiSet.has(k) ? ' ai' : '');
@@ -566,8 +576,8 @@ async function carForm(id) {
       ${stepper('loan_amount', 'Loan amount (₹)', 10000, 'inputmode="numeric"', moneyHint('loan_amount'))}${stepper('interest_rate', 'Interest rate (% per year)', 0.5, 'inputmode="decimal" placeholder="e.g. 15"')}
       <div class="fl"><label>Accept offers from buyers?</label>${seg('offers_open', ['Yes', 'No']).replace(/data-v="(Yes|No)" class="[^"]*"/g, (m, v) => `data-v="${v}" class="${(v === 'Yes') === !!f.offers_open ? 'on' : ''}"`)}</div>
       <div class="fl"><label for="offers_close_at">Offers close on (optional)</label><input class="fi" id="offers_close_at" type="datetime-local"><p class="hint">Use this when several buyers are interested.</p></div>`;
-    render(`<div class="topbar"><button class="round" id="cancel" aria-label="${step === 1 ? 'Close' : 'Back'}">${ic(step === 1 ? 'x' : 'back')}</button><b>${d ? 'Edit car' : 'Add a car'}</b></div><div class="steps">${[1, 2, 3].map((x) => `<span class="${x <= step ? 'on' : ''}"></span>`).join('')}</div>${body}
-    <div class="err" id="err" style="margin:10px 20px 0"></div><div class="bar"><button class="b pri" id="next">${step < 3 ? `Next: ${step === 1 ? 'buying cost' : 'loan and offers'}` : d ? 'Save changes' : 'Save and publish'}</button></div>`);
+    render(`<div class="topbar"><button class="round" id="cancel" aria-label="${step === 1 ? 'Close' : 'Back'}">${ic(step === 1 ? 'x' : 'back')}</button><b>${d ? 'Edit car' : 'Add a car'}</b></div>${LAST > 1 ? `<div class="steps">${[1, 2, 3].map((x) => `<span class="${x <= step ? 'on' : ''}"></span>`).join('')}</div>` : ''}${LAST > 1 ? body : body.replace('Step 1 of 3', 'Car details')}
+    <div class="err" id="err" style="margin:10px 20px 0"></div><div class="bar"><button class="b pri" id="next">${step < LAST ? `Next: ${step === 1 ? 'buying cost' : 'loan and offers'}` : d ? 'Save changes' : 'Save and publish'}</button></div>`);
     const $ = (x) => document.getElementById(x);
     if (f.offers_close_at && $('offers_close_at')) { const t = new Date(f.offers_close_at); $('offers_close_at').value = isNaN(t) ? f.offers_close_at : new Date(t - t.getTimezoneOffset() * 6e4).toISOString().slice(0, 16); }
     document.querySelectorAll('.seg').forEach((sg) => sg.querySelectorAll('button').forEach((b) => (b.onclick = () => {
@@ -595,7 +605,7 @@ async function carForm(id) {
     $('next').onclick = async () => {
       collect(); const err = validate(); if (err) { $('err').textContent = err; return; }
       for (const [t, m] of warnings()) { if (!(await ask(t, m, 'Yes, it is correct'))) return; }
-      if (step < 3) { step++; return draw(); }
+      if (step < LAST) { step++; return draw(); }
       $('next').disabled = true; $('next').textContent = 'Saving…';
       try {
         const name = carName(), slug = d ? d.slug : slugify(name, f.year);
@@ -608,7 +618,7 @@ async function carForm(id) {
           description: f.description.trim() || null, price: num(f.price), photos, offers_open: !!f.offers_open, offers_close_at: f.offers_close_at ? new Date(f.offers_close_at).toISOString() : null };
         if (d) car.id = d.id; else car.slug = slug;
         const costs = { buy_price: num(f.buy_price), bought_on: f.bought_on || today, loan_amount: num(f.loan_amount), interest_rate: Number(String(f.interest_rate || 0).replace(/[^\d.]/g, '')) || 0 };
-        const newId = await store.saveCar(car, costs);
+        const newId = await store.saveCar(car, ADMIN() ? costs : null);
         toast(d ? 'Changes saved' : 'Car added to the showroom'); go(`#/owner/car/${newId}`);
       } catch (ex) { fail(ex); $('next').disabled = false; $('next').textContent = 'Try again'; }
     };
@@ -683,6 +693,7 @@ const numbersMissing = () => ten(CONFIG.whatsapp) === PLACEHOLDER || !/^[6-9]\d{
 
 async function profile() {
   if (!(await guard())) return;
+  if (!ADMIN()) return memberProfile();
   const sess = await store.session(), data = await store.ownerData();
   const ALL_SLOTS = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
   const v = { td_slots: [...tdSlots()], td_days_ahead: tdDays(), business_name: CONFIG.businessName, tagline: CONFIG.tagline || '', whatsapp: ten(CONFIG.whatsapp) === PLACEHOLDER ? '' : ten(CONFIG.whatsapp),
@@ -712,7 +723,7 @@ async function profile() {
     <h3 class="psec">Login email</h3>
     <form id="ef" class="fl" novalidate><label for="email">Email used to log in</label><div class="two" style="grid-template-columns:1fr auto;gap:8px"><input class="fi" id="email" type="email" value="${esc(sess.email)}"><button class="b ghost" style="width:auto">Change</button></div><p class="hint" id="emsg">${LIVE ? 'We send a confirmation link to the new email before the change happens.' : ''}</p></form>
     <h3 class="psec">More</h3>
-    <div class="actions" style="grid-template-columns:1fr"><button class="b ghost" id="csv">${ic('download')}Download backup (Excel / CSV)</button><button class="b ghost" id="link">${ic('share')}Share showroom link</button>
+    <div class="actions" style="grid-template-columns:1fr"><a class="b ghost" href="#/owner/team">${ic('users')}Team: add sales and staff</a><a class="b ghost" href="#/account">${ic('user')}My customer view</a><button class="b ghost" id="csv">${ic('download')}Download backup (Excel / CSV)</button><button class="b ghost" id="link">${ic('share')}Share showroom link</button>
     ${LIVE ? '' : `<button class="b ghost" id="reset">Reset demo data</button>`}<button class="b red" id="out">${ic('logout')}Log out</button></div>
     <p class="foot">Tip: download a backup once a week and keep it in Google Drive.</p>${nav('more', leadCount(data))}`);
     const $ = (id) => document.getElementById(id);
@@ -749,9 +760,158 @@ async function profile() {
     };
     $('link').onclick = async () => { const url = `${siteBase()}#/`; try { if (navigator.share) await navigator.share({ title: CONFIG.businessName, url }); else { await navigator.clipboard.writeText(url); toast('Showroom link copied'); } } catch {} };
     $('reset')?.addEventListener('click', async () => { if (await ask('Reset demo?', 'All demo cars, offers and profile changes go back to the sample data.', 'Reset', true)) { await store.resetDemo(); location.reload(); } });
-    $('out').onclick = async () => { await store.signOut(); go('#/'); };
+    $('out').onclick = async () => { await store.signOut(); ROLE = null; go('#/'); };
   };
   draw();
+}
+
+// ═════════════════════════ TEAM & ACCOUNTS ═════════════════════════
+const ROLES = {
+  admin: { label: 'Admin', cls: 'p', can: 'Everything: buying cost, profit, settings and the team.' },
+  sales: { label: 'Sales', cls: 'g', can: 'Cars, offers and test drives. No buying cost or profit.' },
+  staff: { label: 'Staff', cls: 'n', can: 'Add and edit cars, handle test drives. No offers, cost or profit.' },
+};
+const rolePill = (r) => `<span class="pill rl ${ROLES[r]?.cls || 'n'}">${ROLES[r]?.label || r}</span>`;
+const isEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+async function teamPage() {
+  if (!(await guard(['admin']))) return;
+  const [list, sess, raw] = await Promise.all([store.listTeam(), store.session(), store.ownerData()]);
+  const me = (sess.email || '').toLowerCase();
+  const order = { admin: 0, sales: 1, staff: 2 };
+  const sorted = [...list].sort((a, b) => order[a.role] - order[b.role] || a.email.localeCompare(b.email));
+  render(`${demoBar()}<div class="topbar"><a class="round" href="#/owner/profile" aria-label="Back">${ic('back')}</a><b>Team</b><button class="round" id="addm" aria-label="Add a person">${ic('plus')}</button></div>
+  <p class="desc tintro">Add the people who work with you. They log in with their own email and only see what their role allows.</p>
+  <div class="roles">${Object.entries(ROLES).map(([k, r]) => `<div class="rc">${rolePill(k)}<small>${r.can}</small></div>`).join('')}</div>
+  <div class="sect"><b>${list.length} ${list.length === 1 ? 'person' : 'people'}</b></div>
+  <div class="list">${sorted.map((m) => `<button class="it tm" data-em="${esc(m.email)}"><div class="ava">${esc(initials(m.name || m.email))}</div><div class="m"><b>${esc(m.name || m.email.split('@')[0])}${m.email === me ? ' <small class="you">You</small>' : ''}</b><small>${esc(m.email)}</small></div>${rolePill(m.role)}</button>`).join('')}</div>
+  <div class="fl"><button class="b pri" id="addm2">${ic('plus')}Add a person</button></div>
+  <p class="foot">Customers do not need to be added: anyone can log in from the showroom to track their offers and test drives.</p>${nav('more', leadCount(raw))}`);
+  document.getElementById('addm').onclick = document.getElementById('addm2').onclick = () => memberSheet(null, me);
+  document.querySelectorAll('[data-em]').forEach((b) => (b.onclick = () => memberSheet(list.find((m) => m.email === b.dataset.em), me)));
+}
+
+function memberSheet(m, me) {
+  const f = { name: m?.name || '', email: m?.email || '', role: m?.role || 'sales' };
+  const w = document.createElement('div');
+  const draw = () => {
+    w.innerHTML = `<div class="scrim"></div><form class="sheet" novalidate><div class="grab"></div><h2>${m ? esc(m.name || m.email) : 'Add a person'}</h2>
+    ${m ? `<p class="hint" style="margin-top:4px">${esc(m.email)}${m.added_by && m.added_by !== 'setup' ? ` · added by ${esc(m.added_by)}` : ''}</p>` : ''}
+    <div class="fl"><label for="mn">Name</label><input class="fi" id="mn" maxlength="60" value="${esc(f.name)}" placeholder="e.g. Ravi"></div>
+    ${m ? '' : `<div class="fl"><label for="me">Email they will log in with</label><input class="fi" id="me" type="email" autocomplete="off" value="${esc(f.email)}" placeholder="name@gmail.com"></div>`}
+    <div class="fl"><label>Role</label><div class="rpick">${Object.entries(ROLES).map(([k, r]) => `<button type="button" data-r="${k}" class="${f.role === k ? 'on' : ''}"><b>${r.label}</b><small>${r.can}</small></button>`).join('')}</div></div>
+    <div class="err" id="merr"></div>
+    <button class="b pri" style="margin-top:14px" id="msave">${m ? 'Save' : 'Add to team'}</button>
+    ${m ? `<button type="button" class="b red" style="margin-top:10px" id="mdel">${ic('trash', 'sm')}${m.email === me ? 'Leave the team' : 'Remove from team'}</button>` : ''}</form>`;
+    const $ = (id) => w.querySelector('#' + id);
+    w.querySelector('.scrim').onclick = () => w.remove();
+    w.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => { f.name = $('mn').value; if ($('me')) f.email = $('me').value; f.role = b.dataset.r; draw(); }));
+    w.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault(); f.name = $('mn').value.trim(); if ($('me')) f.email = $('me').value.trim().toLowerCase();
+      if (!m && !isEmail(f.email)) { $('merr').textContent = 'Enter a valid email.'; return; }
+      if (m && m.email === me && m.role === 'admin' && f.role !== 'admin' && !(await ask('Give up admin?', 'You will lose access to costs, profit, settings and this Team page.', 'Yes, change it', true))) return;
+      $('msave').disabled = true;
+      try {
+        if (m) await store.updateMember(m.email, { name: f.name, role: f.role }); else await store.addMember(f);
+        w.remove();
+        if (m) { toast('Saved'); return route(); }
+        inviteSheet(f);
+      } catch (ex) { $('merr').textContent = ex.message; $('msave').disabled = false; }
+    };
+    $('mdel')?.addEventListener('click', async () => {
+      if (!(await ask(m.email === me ? 'Leave the team?' : `Remove ${m.name || m.email}?`, m.email === me ? 'You will lose access to the business area.' : 'They lose access straight away. Their past work stays.', 'Remove', true))) return;
+      try { await store.removeMember(m.email); w.remove(); toast('Removed from team'); route(); } catch (ex) { $('merr').textContent = ex.message; }
+    });
+  };
+  draw(); document.body.appendChild(w); w.querySelector('#mn').focus();
+}
+
+// After adding someone: a ready-made message telling them how to log in.
+function inviteSheet(f) {
+  const url = `${siteBase()}#/login`;
+  const text = `Hi ${f.name || ''}, you are added to the ${CONFIG.businessName} team as ${ROLES[f.role].label}. Open ${url} (or the ${CONFIG.businessName} app), tap Log in and use this email: ${f.email}. You will get a login code by email.`;
+  const w = document.createElement('div');
+  w.innerHTML = `<div class="scrim"></div><div class="sheet"><div class="grab"></div><div style="text-align:center;padding:10px 0 0"><div class="round" style="margin:0 auto;width:60px;height:60px;background:var(--gbg);color:var(--g)">${ic('check')}</div>
+  <h2 style="margin-top:14px">${esc(f.name || f.email)} is added</h2><p class="desc" style="margin:8px 0 0">They can log in now with <b>${esc(f.email)}</b>. Send them the steps:</p></div>
+  <div class="btns" style="margin-top:18px"><a class="b wa" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">${ic('chat')}WhatsApp</a><button class="b ghost" id="ishare">${ic('share')}Share</button></div>
+  <button class="b ghost" style="margin-top:10px" id="idone">Done</button></div>`;
+  document.body.appendChild(w);
+  const close = () => { w.remove(); route(); };
+  w.querySelector('.scrim').onclick = close; w.querySelector('#idone').onclick = close;
+  w.querySelector('#ishare').onclick = async () => { try { if (navigator.share) await navigator.share({ title: CONFIG.businessName, text }); else { await navigator.clipboard.writeText(text); toast('Message copied'); } } catch {} };
+}
+
+// Profile for Sales and Staff: who they are and what they can do.
+async function memberProfile() {
+  const [sess, team, raw] = await Promise.all([store.session(), store.listTeam(), store.ownerData()]);
+  const meRow = team.find((x) => x.email === (sess.email || '').toLowerCase()) || {};
+  render(`${demoBar()}<div class="topbar"><b>Profile</b></div>
+  <div class="ocar"><div class="ava big">${esc(initials(meRow.name || sess.email))}</div><div><b>${esc(meRow.name || sess.email.split('@')[0])}</b><small>${esc(sess.email)}</small></div>${rolePill(ROLE)}</div>
+  <div class="info" style="margin:14px 20px 0">${ic('shield', 'sm')}<span><b>${ROLES[ROLE].label}:</b> ${ROLES[ROLE].can} Ask an admin if you need more access.</span></div>
+  <div class="actions" style="grid-template-columns:1fr;margin-top:18px"><a class="b ghost" href="#/">${ic('car')}Open showroom</a><button class="b ghost" id="link">${ic('share')}Share showroom link</button><button class="b red" id="out">${ic('logout')}Log out</button></div>${nav('more', leadCount(raw))}`);
+  document.getElementById('link').onclick = async () => { const url = `${siteBase()}#/`; try { if (navigator.share) await navigator.share({ title: CONFIG.businessName, url }); else { await navigator.clipboard.writeText(url); toast('Showroom link copied'); } } catch {} };
+  document.getElementById('out').onclick = async () => { await store.signOut(); ROLE = null; go('#/'); };
+}
+
+// Sales and Staff home: no money, just today's work.
+function teamHome(all, raw, sess) {
+  const stock = all.filter((c) => c.status !== 'sold').sort((a, b) => b.cs.days - a.cs.days), t = localISO();
+  const drives = (raw.drives || []).filter((x) => all.some((c) => c.id === x.car_id));
+  const tdToday = drives.filter((x) => x.drive_date === t && ['requested', 'confirmed'].includes(x.status)).length;
+  const tdAsk = drives.filter((x) => x.status === 'requested' && x.drive_date >= t).length;
+  const newOffers = (raw.offers || []).filter((o) => o.status === 'new').length, hour = new Date().getHours();
+  render(`${demoBar()}<div class="ohead"><div><small>${hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'} · ${ROLES[ROLE].label}</small><b>Today's work</b></div><a class="round" href="#/" aria-label="Open showroom">${ic('share')}</a></div>
+  <div class="hero2"><small>Cars in stock</small><div class="v">${stock.length}</div><div class="sub"><div>Test drives today<b>${tdToday}</b></div><div>Booked cars<b>${stock.filter((c) => c.status === 'booked').length}</b></div>${ROLE === 'sales' ? `<div>New offers<b>${newOffers}</b></div>` : `<div>To confirm<b>${tdAsk}</b></div>`}</div></div>
+  ${tdToday || tdAsk ? `<a class="alert grn" href="#/owner/drives"><div class="ic3">${ic('cal')}</div><div><b>${tdToday ? `${tdToday} test drive${tdToday > 1 ? 's' : ''} today` : `${tdAsk} test drive request${tdAsk > 1 ? 's' : ''}`}</b><small>${tdAsk ? `${tdAsk} waiting for a call to confirm` : 'All confirmed. Keep the cars clean and ready.'}</small></div></a>` : ''}
+  ${ROLE === 'sales' && newOffers ? `<a class="alert blu" href="#/owner/offers"><div class="ic3">${ic('tag')}</div><div><b>${newOffers} new offer${newOffers > 1 ? 's' : ''} to call back</b><small>Confirm them by phone</small></div></a>` : ''}
+  <div class="sect"><b>Stock, oldest first</b><a href="#/owner/stock">See all</a></div>
+  <div class="list">${stock.length ? stock.map(row).join('') : '<div class="empty">No cars yet. Tap + to add a car.</div>'}</div>${nav('home', leadCount(raw))}`);
+}
+
+// Car page in the business area for Sales and Staff: no cost sheet.
+function carManage(c, raw) {
+  const offers = c.offers.filter((o) => o.status !== 'rejected').length;
+  const drives = (raw.drives || []).filter((x) => x.car_id === c.id && x.drive_date >= localISO() && ['requested', 'confirmed'].includes(x.status)).length;
+  render(`${demoBar()}<div class="topbar"><a class="round" href="#/owner/stock">${ic('back')}</a><b>Car</b><a class="round" href="#/owner/edit/${c.id}" aria-label="Edit">${ic('edit')}</a></div>
+  <div class="ocar"><div class="th">${photo(c, c.photos[0])}</div><div><b>${esc(c.name)}</b><small>${c.year} · ${kmFmt(c.km)} km · ${esc(c.fuel)}</small></div></div>
+  <div class="kv"><div><small>Asking price</small><b>${inr(c.price)}</b></div><div><small>In stock</small><b>${c.cs.days} days</b></div></div>
+  <div class="kv"><div><small>Status</small><b>${c.status === 'booked' ? 'Booked' : c.status === 'sold' ? 'Sold' : 'Available'}</b></div><div><small>Upcoming test drives</small><b>${drives}</b></div></div>
+  <div class="actions">${ROLE === 'sales' ? `<a class="b ghost sm" href="#/owner/offers/${c.id}">${ic('tag', 'sm')}Offers (${offers})</a>` : ''}<a class="b ghost sm" href="#/owner/drives">${ic('cal', 'sm')}Test drives</a>
+  <a class="b ghost sm" href="#/car/${esc(c.slug)}">${ic('car', 'sm')}Showroom page</a><a class="b ghost sm" href="#/owner/edit/${c.id}">${ic('edit', 'sm')}Edit details</a>
+  ${c.status !== 'sold' ? `<button class="b ghost sm" data-st="${c.status === 'booked' ? 'available' : 'booked'}">${c.status === 'booked' ? 'Unbook' : 'Mark booked'}</button>` : ''}</div>
+  <p class="foot">Only an admin can mark a car as sold or delete it.</p>${nav('stock', leadCount(raw))}`);
+  document.querySelectorAll('[data-st]').forEach((b) => (b.onclick = async () => { try { await store.updateCar(c.id, { status: b.dataset.st }); toast('Updated'); route(); } catch (ex) { fail(ex); } }));
+}
+
+// Customer account: their details, offers and test drives.
+async function accountPage() {
+  const sess = await store.session();
+  if (!sess) return go('#/login');
+  const [meta, act, role] = await Promise.all([store.getMe().catch(() => ({})), store.myActivity().catch(() => ({ offers: [], drives: [] })), store.myRole().catch(() => null)]);
+  const v = { name: meta.name || jget('vm-me')[0]?.name || '', phone: meta.phone || jget('vm-me')[0]?.phone || '' };
+  const DS = { requested: ['a', 'Waiting for call'], confirmed: ['g', 'Confirmed'], done: ['n', 'Done'], cancelled: ['n', 'Cancelled'], no_show: ['n', 'Missed'] };
+  const OS = { new: ['a', 'Sent'], confirmed: ['g', 'Seen by dealer'], accepted: ['g', 'Accepted'], rejected: ['n', 'Not accepted'] };
+  const carRow = (car, line, st) => `<a class="it" href="${car ? `#/car/${esc(car.slug)}` : '#/'}"><div class="th">${car ? photo(car, car.photos[0]) : ''}</div><div class="m"><b>${esc(car ? car.name : 'Car sold')}</b><small>${line}</small></div><span class="pill ${st[0]}">${st[1]}</span></a>`;
+  document.title = `My account · ${CONFIG.businessName}`;
+  render(`${demoBar()}${topBar(false)}<div class="wrap crumbs"><a href="#/">${ic('back', 'sm')}All cars</a><span>/</span><span>My account</span></div>
+  <div class="wrap acct"><div class="acard"><div class="ava big">${esc(initials(v.name || sess.email))}</div><div><b>${esc(v.name || 'Welcome')}</b><small>${esc(sess.email)}</small></div></div>
+  ${role ? `<a class="alert blu" href="#/owner" style="margin:14px 0 0"><div class="ic3">${ic('home')}</div><div><b>You are on the ${esc(CONFIG.businessName)} team (${ROLES[role].label})</b><small>Open the business area</small></div></a>` : ''}
+  <div class="acols"><section><h2 class="h2">My test drives</h2><div class="list">${act.drives.length ? act.drives.map((x) => carRow(x.car, `${dayLabel(x.drive_date, true)} · ${slotLabel(String(x.slot).slice(0, 5))}`, DS[x.status] || ['n', x.status])).join('') : '<div class="empty sm">No test drives yet. Open any car and tap <b>Test drive</b>.</div>'}</div>
+  <h2 class="h2">My offers</h2><div class="list">${act.offers.length ? act.offers.map((o) => carRow(o.car, `Your offer ${inr(o.amount)}`, OS[o.status] || ['n', o.status])).join('') : '<div class="empty sm">No offers yet.</div>'}</div></section>
+  <section><h2 class="h2">My details</h2><p class="hint">Saved so your offers and test drive bookings are filled in for you.</p>
+  <form id="af" novalidate><div class="fl"><label for="an">Name</label><input class="fi" id="an" maxlength="60" autocomplete="name" value="${esc(v.name)}"></div>
+  <div class="fl"><label for="ap">Mobile number</label><div class="pre"><span>+91</span><input class="fi" id="ap" inputmode="tel" maxlength="17" autocomplete="tel" value="${esc(v.phone)}" placeholder="10-digit mobile number"></div></div>
+  <div class="err" id="aerr"></div><div class="fl"><button class="b pri" id="asave">Save details</button></div></form>
+  <div class="actions" style="grid-template-columns:1fr 1fr;margin-top:6px"><a class="b ghost sm" href="#/saved">${ic('heart', 'sm')}Saved cars</a><button class="b red sm" id="aout">${ic('logout', 'sm')}Log out</button></div></section></div></div>${siteFoot()}`);
+  const $ = (id) => document.getElementById(id);
+  $('af').onsubmit = async (e) => {
+    e.preventDefault(); const name = $('an').value.trim(), phone = ten($('ap').value);
+    const err = name && !/\p{L}.*\p{L}/u.test(name) ? 'Enter your name.' : phone && !/^[6-9]\d{9}$/.test(phone) ? 'Enter a valid 10-digit mobile number.' : '';
+    if (err) { $('aerr').textContent = err; return; }
+    $('asave').disabled = true;
+    try { await store.saveMe({ name, phone }); jset('vm-me', [{ name, phone }]); toast('Details saved'); accountPage(); } catch (ex) { $('aerr').textContent = ex.message; $('asave').disabled = false; }
+  };
+  $('aout').onclick = async () => { await store.signOut(); ROLE = null; toast('Logged out'); go('#/'); };
 }
 
 // ═════════════════════════ ROUTER ═════════════════════════
@@ -764,6 +924,8 @@ async function route() {
     if (p[0] !== 'owner' && !$app.querySelector('.top')) render(skeleton());
     if (!p.length) return await showroom();
     if (p[0] === 'car') return await carPage(decodeURIComponent(p[1] || ''));
+    if (p[0] === 'login') return await login();
+    if (p[0] === 'account') return await accountPage();
     if (p[0] === 'saved') return await savedPage(['saved', 'recent', 'drives'].includes(p[1]) ? p[1] : 'saved');
     if (p[0] === 'owner') {
       const [, page, id] = p;
@@ -773,6 +935,7 @@ async function route() {
       if (page === 'car') return await costPage(id);
       if (page === 'offers') return await offersPage(id);
       if (page === 'drives') return await drivesPage();
+      if (page === 'team') return await teamPage();
       if (page === 'add') return await carForm();
       if (page === 'edit') return await carForm(id);
       if (page === 'more' || page === 'profile') return await profile();
@@ -793,7 +956,7 @@ async function authRedirect() {
   if (!LIVE || !(/access_token|error_description/.test(h) || /[?&]code=/.test(q))) return;
   const err = new URLSearchParams(h.replace(/^#\/?/, '')).get('error_description');
   try { await store.session(); } catch {}
-  history.replaceState(null, '', location.pathname + (err ? '#/owner/login' : '#/owner'));
+  history.replaceState(null, '', location.pathname + (err ? '#/login' : '#/owner'));
   if (err) setTimeout(() => toast(/expired|invalid/i.test(err) ? 'That login link has expired. Send a new code.' : err), 400);
 }
 addEventListener('hashchange', route);
